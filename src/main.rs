@@ -11,10 +11,10 @@ use bevy_inspector_egui::quick::{ResourceInspectorPlugin};
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use crate::components::player::{PlayerInfo, player_control, update_players};
+use crate::components::player::{PlayerInfo, player_control, update_players, reconcile_player_position};
 use crate::network::net_manage::{init_connection, start_udp_task, Communication};
-use crate::network::net_reconciliation::{MessageBuffer, BUFFER_SIZE};
-use crate::network::net_system::{parse_udp_message, udp_client_net_send, NetworkMessages};
+use crate::network::net_reconciliation::ReconcileBuffer;
+use crate::network::net_system::{udp_client_net_recieve, udp_client_net_send, NetworkMessages};
 
 #[derive(Resource)]
 pub struct ServerSocket(pub SocketAddr);
@@ -52,9 +52,9 @@ async fn main() -> io::Result<()> {
         .insert_resource(ServerSocket(SocketAddr::new("100.113.246.10".parse().unwrap(), 4444)))
         .insert_resource(Communication::new(udp_send_tx, udp_receive_rx, tcp_send_tx, tcp_receive_rx))
         .insert_resource(PlayerInfo { current_player_id: player_uid , player_inputs: 0 })
-        .insert_resource(NetworkMessages((0,vec![])))
+        .insert_resource(NetworkMessages{ message: (0, vec![]) })
         .insert_resource(Lobby(l_id))
-        .insert_resource(MessageBuffer{ buffer: HashMap::new(), sequence_counter: 0})
+        .insert_resource(ReconcileBuffer{ buffer: HashMap::new(), sequence_counter: 0})
         .insert_resource(Time::<Fixed>::from_hz(60.0))
         .add_systems(Startup, setup)
         .add_systems(Update, (
@@ -62,8 +62,9 @@ async fn main() -> io::Result<()> {
             update_players
         ).chain())
         .add_systems(FixedUpdate, (
-            (player_control, udp_client_net_send).chain(),
-            parse_udp_message
+            udp_client_net_recieve,
+            reconcile_player_position,
+            (player_control, udp_client_net_send).chain()
         ))
         .run();
     

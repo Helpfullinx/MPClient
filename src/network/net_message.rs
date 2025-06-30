@@ -13,12 +13,13 @@ use crate::network::net_message::NetworkMessageType::Input;
 // pub struct NetworkMessage(pub NetworkMessageType);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]
+#[derive(PartialEq)]
 pub struct NetworkMessage(pub NetworkMessageType);
 
 type BitMask = u8;
 pub type SequenceNumber = u32;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum NetworkMessageType {
     Sequence { sequence_number: u32 },
     Spawn { player_uid: Vec<Id> },

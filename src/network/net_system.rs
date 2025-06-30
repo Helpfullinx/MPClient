@@ -4,21 +4,39 @@ use bincode::config;
 use tokio::sync::mpsc::error::TrySendError;
 use crate::{Communication, ServerSocket};
 use crate::network::net_message::{build_udp_message, NetworkMessage, SequenceNumber};
-use crate::network::net_reconciliation::{sequence_message, MessageBuffer};
+use crate::network::net_reconciliation::{build_reconcile_object_list, parse_udp_message, sequence_message, ReconcileBuffer, ReconcileObject};
 
 #[derive(Resource)]
-pub struct NetworkMessages(pub (SequenceNumber, Vec<NetworkMessage>));
+pub struct NetworkMessages{
+    pub message: (SequenceNumber, Vec<NetworkMessage>),
+}
+
+pub fn udp_client_net_recieve(
+    mut connection: ResMut<Communication>,
+    mut net_message: ResMut<NetworkMessages>,
+) {
+    let message = parse_udp_message(&mut connection);
+
+    match message {
+        Some(m) => {
+            net_message.message = m;
+        }
+        None => {}
+    }
+}
 
 pub fn udp_client_net_send(
     comm: ResMut<Communication>,
     server_socket: Res<ServerSocket>,
     mut messages: Query<(Entity, &NetworkMessage)>,
-    mut message_buffer: ResMut<MessageBuffer>,
+    mut reconcile_objects: Query<(Entity, &ReconcileObject)>,
+    mut message_buffer: ResMut<ReconcileBuffer>,
     mut commands: Commands
 ) {
     // Takes in all NetworkMessage that have been added to ECS and builds Network
     let net_message = build_udp_message(&mut messages, &mut commands);
-    let sm = sequence_message(net_message, &mut message_buffer);
+    let reconciled_objects = build_reconcile_object_list(&mut reconcile_objects, &mut commands);
+    let sm = sequence_message(net_message, reconciled_objects, &mut message_buffer);
     
     let message = bincode::serde::encode_to_vec(sm, config::standard()).unwrap();
     
@@ -26,20 +44,5 @@ pub fn udp_client_net_send(
         Ok(()) => {}
         Err(TrySendError::Full(_)) => {},
         Err(TrySendError::Closed(_)) => {}
-    }
-}
-
-pub fn parse_udp_message(
-    mut connection: ResMut<Communication>,
-    mut net_message: ResMut<NetworkMessages>
-) {
-    while !connection.udp_rx.is_empty() {
-        match connection.udp_rx.try_recv() {
-            Ok((bytes, _)) => {
-                let decoded = bincode::serde::decode_from_slice(&bytes, config::standard()).unwrap();
-                net_message.0 = decoded.0;
-            }
-            Err(_) => {}
-        }
     }
 }

@@ -6,10 +6,13 @@ use bevy::input::ButtonInput;
 use bevy::math::{Vec3, VectorSpace};
 use bevy::prelude::{ColorMaterial, Commands, GlobalTransform, JustifyText, KeyCode, Mesh, Mesh2d, MeshMaterial2d, Query, Rectangle, ReflectResource, Res, ResMut, Text2d, TextLayout, Transform};
 use bevy::prelude::{Bundle, Reflect, Resource};
+use bevy_inspector_egui::egui::lerp;
 use serde::{Deserialize, Serialize};
 use crate::components::common::{Id, Position};
 use crate::network::net_message::{NetworkMessage, NetworkMessageType};
 use crate::network::net_message::NetworkMessageType::Input;
+use crate::network::net_reconciliation::{ReconcileBuffer, ReconcileObject, ReconcileType};
+use crate::network::net_reconciliation::ReconcileType::Player;
 use crate::NetworkMessages;
 
 #[derive(Reflect, Resource, Default)]
@@ -19,7 +22,7 @@ pub struct PlayerInfo {
     pub player_inputs: u8
 }
 
-#[derive(Bundle, Serialize, Deserialize, Debug, Default, Copy, Clone)]
+#[derive(Bundle, Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq)]
 pub struct PlayerBundle{
     pub position: Position,
 }
@@ -62,12 +65,62 @@ pub fn player_control(
             if encoded_input & 2 > 0 { transform.translation.y -= move_speed; }
             if encoded_input & 4 > 0 { transform.translation.x += move_speed; }
             if encoded_input & 8 > 0 { transform.translation.x -= move_speed; }
+
+            commands.spawn(ReconcileObject(Player {player_bundle: PlayerBundle::new(Position::new(transform.translation.x, transform.translation.y))}));
         }
     }
     
     player_info.player_inputs = encoded_input;
     
+    
     commands.spawn(NetworkMessage(Input { keymask: encoded_input, player_uid: player_id }));
+}
+
+pub fn reconcile_player_position(
+    net_messages: ResMut<NetworkMessages>,
+    mut players: Query<(&mut Transform, &Id)>,
+    player_info: ResMut<PlayerInfo>,
+    reconcile_buffer: Res<ReconcileBuffer>
+){
+    println!("sequence: {:?}", net_messages.message.0);
+    let mut server_player = None;
+    for m in &net_messages.message.1 {
+        match &m.0 { 
+            NetworkMessageType::Players { players } => {
+                server_player = players.get(&player_info.current_player_id);
+            },
+            _ => {}
+        }
+    }
+    
+    let mut client_player = None;
+    match reconcile_buffer.buffer.get(&net_messages.message.0) {
+        Some(reconcile_objects) => {
+            for r in reconcile_objects {
+                match r.0 {
+                    Player { player_bundle } => {
+                        client_player = Some(player_bundle);
+                    }
+                }
+            }
+        },
+        None => {}
+    }
+    
+    println!("client: {:?}, server: {:?}", client_player, server_player);
+    
+    for (mut transform, id) in players.iter_mut() {
+        if player_info.current_player_id == id.0 && server_player.is_some() && client_player.is_some() {
+            let server_pos = (*server_player.unwrap()).position;
+            let client_pos = client_player.unwrap().position;
+            
+            if server_pos != client_pos {
+                transform.translation.x = server_pos.x;
+                transform.translation.y = server_pos.y;
+                println!("Reconciled");
+            }
+        }
+    }
 }
 
 pub fn spawn_players (
@@ -77,7 +130,7 @@ pub fn spawn_players (
     mut net_message: ResMut<NetworkMessages>,
 ) {
 
-    let res = &mut net_message.0.1;
+    let res = &mut net_message.message.1;
     for m in res {
         match &m.0 {
             NetworkMessageType::Spawn { player_uid} => {
@@ -105,10 +158,9 @@ pub fn update_players(
     info: Res<PlayerInfo>,
     mut net_message: ResMut<NetworkMessages>,
 ) {
-    for m in net_message.0.1.iter_mut() {
+    for m in net_message.message.1.iter_mut() {
         match &m.0 {
             NetworkMessageType::Players { players: updated_players } => {
-
                 let mut existing_players = HashSet::new();
                 for mut player in players.iter_mut() {
                     existing_players.insert(player.1.0);
@@ -119,8 +171,8 @@ pub fn update_players(
                     };
 
                     if player.1.0 != info.current_player_id {
-                        player.0.translation.x = VectorSpace::lerp(player.0.translation.x, pos.x, 0.1);
-                        player.0.translation.y = VectorSpace::lerp(player.0.translation.y, pos.y, 0.1);
+                        player.0.translation.x = lerp(player.0.translation.x..=pos.x, 0.75);
+                        player.0.translation.y = lerp(player.0.translation.y..=pos.y, 0.75);
                     }
                 }
                 
