@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::{Commands, Entity, Query, Res, ResMut, Resource};
 use bincode::config;
 use tokio::sync::mpsc::error::TrySendError;
@@ -6,7 +7,7 @@ use crate::{Communication, ServerSocket};
 use crate::network::net_message::{build_udp_message, NetworkMessage, SequenceNumber};
 use crate::network::net_reconciliation::{build_reconcile_object_list, parse_udp_message, sequence_message, ReconcileBuffer, ReconcileObject};
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct NetworkMessages{
     pub message: (SequenceNumber, Vec<NetworkMessage>),
 }

@@ -82,17 +82,20 @@ pub fn reconcile_player_position(
     player_info: ResMut<PlayerInfo>,
     reconcile_buffer: Res<ReconcileBuffer>
 ){
-    println!("sequence: {:?}", net_messages.message.0);
     let mut server_player = None;
+    let mut count = 0;
     for m in &net_messages.message.1 {
         match &m.0 { 
             NetworkMessageType::Players { players } => {
+                count += 1;
                 server_player = players.get(&player_info.current_player_id);
             },
             _ => {}
         }
     }
-    
+
+    if count == 2 { println!("{:?}", net_messages); }
+
     let mut client_player = None;
     match reconcile_buffer.buffer.get(&net_messages.message.0) {
         Some(reconcile_objects) => {
@@ -106,9 +109,7 @@ pub fn reconcile_player_position(
         },
         None => {}
     }
-    
-    println!("client: {:?}, server: {:?}", client_player, server_player);
-    
+
     for (mut transform, id) in players.iter_mut() {
         if player_info.current_player_id == id.0 && server_player.is_some() && client_player.is_some() {
             let server_pos = (*server_player.unwrap()).position;
@@ -117,6 +118,8 @@ pub fn reconcile_player_position(
             if server_pos != client_pos {
                 transform.translation.x = server_pos.x;
                 transform.translation.y = server_pos.y;
+                println!("sequence: {:?}", net_messages.message.0);
+                println!("client: {:?}, server: {:?}", client_player, server_player);
                 println!("Reconciled");
             }
         }

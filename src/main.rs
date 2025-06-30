@@ -63,8 +63,8 @@ async fn main() -> io::Result<()> {
         ).chain())
         .add_systems(FixedUpdate, (
             udp_client_net_recieve,
-            reconcile_player_position,
-            (player_control, udp_client_net_send).chain()
+            (player_control, udp_client_net_send).chain(),
+            reconcile_player_position
         ))
         .run();
     
@@ -76,7 +76,7 @@ fn setup(
     player_info: Res<PlayerInfo>,
 ) {
     commands.spawn(Camera2d);
-    
+
     commands.spawn((
         UuidText,
         Text::new(player_info.current_player_id.to_string()),
