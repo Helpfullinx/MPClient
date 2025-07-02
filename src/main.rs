@@ -11,7 +11,7 @@ use bevy_inspector_egui::quick::{ResourceInspectorPlugin};
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use crate::components::player::{PlayerInfo, player_control, update_players, reconcile_player_position};
+use crate::components::player::{PlayerInfo, player_control, update_players, reconcile_player_position, snap_camera_to_player};
 use crate::network::net_manage::{init_connection, start_udp_task, Communication};
 use crate::network::net_reconciliation::ReconcileBuffer;
 use crate::network::net_system::{udp_client_net_recieve, udp_client_net_send, NetworkMessages};
@@ -23,7 +23,7 @@ pub struct ServerSocket(pub SocketAddr);
 pub struct Lobby(u128);
 
 #[derive(Component)]
-pub struct UuidText;
+pub struct Hud;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -59,7 +59,8 @@ async fn main() -> io::Result<()> {
         .add_systems(Startup, setup)
         .add_systems(Update, (
             // spawn_players,
-            update_players
+            update_players,
+            snap_camera_to_player,
         ).chain())
         .add_systems(FixedUpdate, (
             udp_client_net_recieve,
@@ -73,13 +74,20 @@ async fn main() -> io::Result<()> {
 
 fn setup(
     mut commands: Commands,
-    player_info: Res<PlayerInfo>,
 ) {
-    commands.spawn(Camera2d);
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0,0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    
+    commands.spawn((
+        PointLight::default(),
+        Transform::from_xyz(0.0, 0.0, 10.0),
+    ));
 
     commands.spawn((
-        UuidText,
-        Text::new(player_info.current_player_id.to_string()),
+        Hud,
+        Text::new(""),
         Node {
             position_type: PositionType::Absolute,
             bottom: Val::Px(0.5),

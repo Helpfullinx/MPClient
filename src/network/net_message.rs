@@ -1,19 +1,16 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use bevy::ecs::entity;
-use bevy::prelude::{Commands, Component, Query, Res, Resource};
-use bincode::config;
+use bevy::prelude::{Commands, Component, Query};
 use serde::{Deserialize, Serialize};
 use crate::components::common::{Id, Position};
 use crate::components::entity::Entity;
-use crate::components::player::{PlayerInfo, PlayerBundle};
-use crate::network::net_manage::Communication;
-use crate::network::net_message::NetworkMessageType::Input;
+use crate::components::player::PlayerBundle;
+
+
 // #[derive(Component, Serialize, Deserialize, Clone)]
 // pub struct NetworkMessage(pub NetworkMessageType);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug)]
-#[derive(PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct NetworkMessage(pub NetworkMessageType);
 
 type BitMask = u8;

@@ -1,11 +1,14 @@
 use std::collections::HashSet;
+use std::ops::Add;
 use bevy::asset::Assets;
 use bevy::color::Color;
 use bevy::color::palettes::basic::RED;
 use bevy::input::ButtonInput;
 use bevy::math::{Vec3, VectorSpace};
-use bevy::prelude::{ColorMaterial, Commands, GlobalTransform, JustifyText, KeyCode, Mesh, Mesh2d, MeshMaterial2d, Query, Rectangle, ReflectResource, Res, ResMut, Text2d, TextLayout, Transform};
+use bevy::pbr::StandardMaterial;
+use bevy::prelude::{Camera2d, Camera3d, ColorMaterial, Commands, GlobalTransform, JustifyText, KeyCode, Mesh, Mesh2d, Mesh3d, MeshMaterial2d, MeshMaterial3d, Query, Rectangle, ReflectResource, Res, ResMut, Sphere, Text, Text2d, TextLayout, Transform, With, Without};
 use bevy::prelude::{Bundle, Reflect, Resource};
+use bevy::render::render_resource::TextureViewDimension::Cube;
 use bevy_inspector_egui::egui::lerp;
 use serde::{Deserialize, Serialize};
 use crate::components::common::{Id, Position};
@@ -13,7 +16,7 @@ use crate::network::net_message::{NetworkMessage, NetworkMessageType};
 use crate::network::net_message::NetworkMessageType::Input;
 use crate::network::net_reconciliation::{ReconcileBuffer, ReconcileObject, ReconcileType};
 use crate::network::net_reconciliation::ReconcileType::Player;
-use crate::NetworkMessages;
+use crate::{Hud, NetworkMessages};
 
 #[derive(Reflect, Resource, Default)]
 #[reflect(Resource)]
@@ -35,10 +38,25 @@ impl PlayerBundle{
     }
 }
 
+pub fn snap_camera_to_player(
+    player_info: ResMut<PlayerInfo>,
+    players: Query<(&Transform, &Id), Without<Camera3d>>,
+    mut camera: Query<&mut Transform, With<Camera3d>>,
+) {
+    let mut cam = camera.single_mut().unwrap();
+    for player in players.iter() {
+        if player.1.0 == player_info.current_player_id {
+            cam.translation.x = player.0.translation.x;
+            cam.translation.y = player.0.translation.y;
+        }
+    }
+}
+
 pub fn player_control(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut player_info: ResMut<PlayerInfo>,
     mut players: Query<(&mut Transform, &Id)>,
+    mut hud: Query<&mut Text, With<Hud>>,
     mut commands: Commands,
 ) {
     let mut encoded_input = 0u8;
@@ -57,7 +75,7 @@ pub fn player_control(
     }
 
     let player_id = player_info.current_player_id;
-    let move_speed = 3.0;
+    let move_speed = 0.1;
 
     for (mut transform, id) in players.iter_mut() {
         if player_id == id.0 {
@@ -65,7 +83,11 @@ pub fn player_control(
             if encoded_input & 2 > 0 { transform.translation.y -= move_speed; }
             if encoded_input & 4 > 0 { transform.translation.x += move_speed; }
             if encoded_input & 8 > 0 { transform.translation.x -= move_speed; }
-
+            
+            let mut h = hud.single_mut().unwrap();
+            h.clear();
+            h.push_str(&format!("x: {:?}\ny: {:?}\n{:?}", transform.translation.x, transform.translation.y, player_id));
+            
             commands.spawn(ReconcileObject(Player {player_bundle: PlayerBundle::new(Position::new(transform.translation.x, transform.translation.y))}));
         }
     }
@@ -133,7 +155,7 @@ pub fn reconcile_player_position(
 pub fn spawn_players (
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut net_message: ResMut<NetworkMessages>,
 ) {
 
@@ -143,12 +165,13 @@ pub fn spawn_players (
             NetworkMessageType::Spawn { player_uid} => {
                 println!("Spawning player {:?}", player_uid);
 
-                let mesh = Mesh::from(Rectangle::default());
+                let mesh = Mesh::from(Sphere::default());
                 for p in player_uid {
-                    commands.spawn(( Mesh2d(meshes.add(mesh.clone())),
-                                     MeshMaterial2d(materials.add(Color::from(RED))),
-                                     Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(128.)),
-                                     Id(p.0),
+                    commands.spawn((
+                        Mesh3d(meshes.add(mesh.clone())),
+                        MeshMaterial3d(materials.add(StandardMaterial::from(Color::WHITE))),
+                        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(128.)),
+                        Id(p.0),
                     ));
                 }
             }
@@ -160,7 +183,7 @@ pub fn spawn_players (
 pub fn update_players(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut players: Query<(&mut Transform, &Id)>,
     info: Res<PlayerInfo>,
     mut net_message: ResMut<NetworkMessages>,
@@ -178,13 +201,13 @@ pub fn update_players(
                     };
 
                     if player.1.0 != info.current_player_id {
-                        player.0.translation.x = lerp(player.0.translation.x..=pos.x, 0.75);
-                        player.0.translation.y = lerp(player.0.translation.y..=pos.y, 0.75);
+                        player.0.translation.x = pos.x;
+                        player.0.translation.y = pos.y;
                     }
                 }
                 
                 // Spawns players if they do not exist
-                let mesh = Mesh::from(Rectangle::default());
+                let mesh = Mesh::from(Sphere::default());
                 for p in updated_players.iter() {
                     if !existing_players.contains(p.0) {
                         let parent = commands.spawn((
@@ -196,9 +219,9 @@ pub fn update_players(
                         // Spawn the mesh as a child and it will inherit the scaling
                         commands.entity(parent).with_children(|parent| {
                             parent.spawn((
-                                Mesh2d(meshes.add(mesh.clone())),
-                                MeshMaterial2d(materials.add(Color::from(RED))),
-                                Transform::default().with_scale(Vec3::splat(128.0)),
+                                Mesh3d(meshes.add(mesh.clone())),
+                                MeshMaterial3d(materials.add(StandardMaterial::from(Color::WHITE))),
+                                Transform::default().with_scale(Vec3::splat(1.0)),
                                 GlobalTransform::default(),
                             ));
 
