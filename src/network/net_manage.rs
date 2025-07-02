@@ -103,11 +103,11 @@ pub async fn init_connection(addr: SocketAddr, lobby_id: u128) -> Result<u128, i
     println!("uid: {:x?}", buf);
     let mut uuid= 0;
     
-    let decoded: ((u32, Vec<NetworkMessageType>), _) = bincode::serde::decode_from_slice(&buf, config::standard()).unwrap();
+    let decoded: (Vec<NetworkMessageType>, _) = bincode::serde::decode_from_slice(&buf, config::standard()).unwrap();
     
     println!("{:?}", decoded);
     
-    for m in decoded.0.1 {
+    for m in decoded.0 {
         match m {
             NetworkMessageType::PlayerId {player_uid} => {
                 uuid = player_uid;

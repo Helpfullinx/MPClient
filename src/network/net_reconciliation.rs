@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::components::player::PlayerBundle;
 use crate::network::net_manage::Communication;
 use crate::network::net_message::{NetworkMessage, SequenceNumber};
+use crate::network::net_message::NetworkMessageType::Sequence;
 use crate::network::net_system::NetworkMessages;
 
 pub const BUFFER_SIZE: usize = 1024;
@@ -38,10 +39,10 @@ pub fn build_reconcile_object_list(
 }
 
 pub fn sequence_message(
-    message: Vec<NetworkMessage>,
+    mut message: Vec<NetworkMessage>,
     reconcile_objects: Vec<ReconcileObject>,
     reconcile_buffer: &mut ResMut<ReconcileBuffer>,
-) -> (SequenceNumber, Vec<NetworkMessage>) {
+) -> Vec<NetworkMessage> {
     let current_sequence = reconcile_buffer.sequence_counter;
     
     if reconcile_buffer.sequence_counter > 1022 {
@@ -52,12 +53,13 @@ pub fn sequence_message(
 
     reconcile_buffer.buffer.insert(current_sequence, reconcile_objects.clone());
     
-    (current_sequence, message)
+    message.push(NetworkMessage(Sequence{sequence_number: current_sequence}));
+    message
 }
 
 pub fn parse_udp_message(
     connection: &mut ResMut<Communication>,
-) -> Option<(SequenceNumber, Vec<NetworkMessage>)> {
+) -> Option<Vec<NetworkMessage>> {
     let mut message = None;
     while !connection.udp_rx.is_empty() {
         match connection.udp_rx.try_recv() {

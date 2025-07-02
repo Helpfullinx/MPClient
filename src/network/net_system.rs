@@ -9,7 +9,7 @@ use crate::network::net_reconciliation::{build_reconcile_object_list, parse_udp_
 
 #[derive(Resource, Debug)]
 pub struct NetworkMessages{
-    pub message: (SequenceNumber, Vec<NetworkMessage>),
+    pub message: Vec<NetworkMessage>,
 }
 
 pub fn udp_client_net_recieve(

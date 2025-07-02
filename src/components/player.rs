@@ -83,21 +83,25 @@ pub fn reconcile_player_position(
     reconcile_buffer: Res<ReconcileBuffer>
 ){
     let mut server_player = None;
+    let mut seq_num = None;
     let mut count = 0;
-    for m in &net_messages.message.1 {
+    for m in &net_messages.message {
         match &m.0 { 
             NetworkMessageType::Players { players } => {
                 count += 1;
                 server_player = players.get(&player_info.current_player_id);
             },
+            NetworkMessageType::Sequence { sequence_number } => { seq_num = Some(sequence_number) }
             _ => {}
         }
     }
+    
+    if seq_num.is_none() { return };
 
     if count == 2 { println!("{:?}", net_messages); }
 
     let mut client_player = None;
-    match reconcile_buffer.buffer.get(&net_messages.message.0) {
+    match reconcile_buffer.buffer.get(seq_num.unwrap()) {
         Some(reconcile_objects) => {
             for r in reconcile_objects {
                 match r.0 {
@@ -118,7 +122,7 @@ pub fn reconcile_player_position(
             if server_pos != client_pos {
                 transform.translation.x = server_pos.x;
                 transform.translation.y = server_pos.y;
-                println!("sequence: {:?}", net_messages.message.0);
+                println!("sequence: {:?}", seq_num.unwrap());
                 println!("client: {:?}, server: {:?}", client_player, server_player);
                 println!("Reconciled");
             }
@@ -133,7 +137,7 @@ pub fn spawn_players (
     mut net_message: ResMut<NetworkMessages>,
 ) {
 
-    let res = &mut net_message.message.1;
+    let res = &mut net_message.message;
     for m in res {
         match &m.0 {
             NetworkMessageType::Spawn { player_uid} => {
@@ -161,7 +165,7 @@ pub fn update_players(
     info: Res<PlayerInfo>,
     mut net_message: ResMut<NetworkMessages>,
 ) {
-    for m in net_message.message.1.iter_mut() {
+    for m in net_message.message.iter_mut() {
         match &m.0 {
             NetworkMessageType::Players { players: updated_players } => {
                 let mut existing_players = HashSet::new();

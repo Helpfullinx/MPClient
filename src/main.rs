@@ -52,7 +52,7 @@ async fn main() -> io::Result<()> {
         .insert_resource(ServerSocket(SocketAddr::new("100.113.246.10".parse().unwrap(), 4444)))
         .insert_resource(Communication::new(udp_send_tx, udp_receive_rx, tcp_send_tx, tcp_receive_rx))
         .insert_resource(PlayerInfo { current_player_id: player_uid , player_inputs: 0 })
-        .insert_resource(NetworkMessages{ message: (0, vec![]) })
+        .insert_resource(NetworkMessages{ message: vec![] })
         .insert_resource(Lobby(l_id))
         .insert_resource(ReconcileBuffer{ buffer: HashMap::new(), sequence_counter: 0})
         .insert_resource(Time::<Fixed>::from_hz(60.0))
