@@ -1,13 +1,11 @@
-use std::collections::HashMap;
-use std::fmt::Pointer;
+use crate::components::player::PlayerBundle;
+use crate::network::net_manage::Communication;
+use crate::network::net_message::{NetworkMessage, SequenceNumber, UDP};
 use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource};
 use bincode::config;
 use serde::{Deserialize, Serialize};
-use crate::components::player::PlayerBundle;
-use crate::network::net_manage::Communication;
-use crate::network::net_message::{NetworkMessage, SequenceNumber};
-use crate::network::net_message::NetworkMessageType::Sequence;
-use crate::network::net_system::NetworkMessages;
+use std::collections::HashMap;
+use std::fmt::Pointer;
 
 pub const BUFFER_SIZE: usize = 1024;
 
@@ -20,8 +18,8 @@ pub enum ReconcileType {
 }
 
 #[derive(Resource)]
-pub struct ReconcileBuffer{
-    pub buffer: HashMap<SequenceNumber,Vec<ReconcileObject>>,
+pub struct ReconcileBuffer {
+    pub buffer: HashMap<SequenceNumber, Vec<ReconcileObject>>,
     pub sequence_counter: SequenceNumber,
 }
 
@@ -39,32 +37,37 @@ pub fn build_reconcile_object_list(
 }
 
 pub fn sequence_message(
-    mut message: Vec<NetworkMessage>,
+    mut message: Vec<NetworkMessage<UDP>>,
     reconcile_objects: Vec<ReconcileObject>,
     reconcile_buffer: &mut ResMut<ReconcileBuffer>,
-) -> Vec<NetworkMessage> {
+) -> Vec<NetworkMessage<UDP>> {
     let current_sequence = reconcile_buffer.sequence_counter;
-    
+
     if reconcile_buffer.sequence_counter > 1022 {
         reconcile_buffer.sequence_counter = 0;
     } else {
         reconcile_buffer.sequence_counter = current_sequence + 1;
     }
 
-    reconcile_buffer.buffer.insert(current_sequence, reconcile_objects.clone());
-    
-    message.push(NetworkMessage(Sequence{sequence_number: current_sequence}));
+    reconcile_buffer
+        .buffer
+        .insert(current_sequence, reconcile_objects.clone());
+
+    message.push(NetworkMessage(UDP::Sequence {
+        sequence_number: current_sequence,
+    }));
     message
 }
 
 pub fn parse_udp_message(
     connection: &mut ResMut<Communication>,
-) -> Option<Vec<NetworkMessage>> {
+) -> Option<Vec<NetworkMessage<UDP>>> {
     let mut message = None;
     while !connection.udp_rx.is_empty() {
         match connection.udp_rx.try_recv() {
             Ok((bytes, _)) => {
-                let decoded = bincode::serde::decode_from_slice(&bytes, config::standard()).unwrap();
+                let decoded =
+                    bincode::serde::decode_from_slice(&bytes, config::standard()).unwrap();
                 message = Some(decoded.0)
             }
             Err(_) => {}

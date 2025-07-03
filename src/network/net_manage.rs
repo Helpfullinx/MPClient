@@ -1,12 +1,12 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
+use crate::network::net_message::{NetworkMessageType, TCP};
 use bevy::prelude::{Component, Resource};
 use bincode::config;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::io;
 use tokio::io::Interest;
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::sync::mpsc::{Receiver, Sender};
-use crate::network::net_message::NetworkMessageType;
 
 #[derive(Resource)]
 pub struct Communication {
@@ -77,71 +77,81 @@ pub async fn start_udp_task(
     tokio::spawn(async move {
         while let Some((bytes, addr)) = outbound.recv().await {
             match send_sock.send_to(&bytes, &addr).await {
-                Ok(_) => {},
-                Err(e) => println!("send error: {}", e)
+                Ok(_) => {}
+                Err(e) => println!("send error: {}", e),
             }
         }
     });
-    
+
     Ok(())
 }
 
 pub async fn init_connection(addr: SocketAddr, lobby_id: u128) -> Result<u128, io::Error> {
     let socket = TcpSocket::new_v4()?;
     let stream = socket.connect(addr).await?;
-    
+
     stream.ready(Interest::WRITABLE).await?;
     let mut encoded_data = Vec::new();
-    encoded_data.push(NetworkMessageType::Join{ lobby_id });
-    stream.try_write(bincode::serde::encode_to_vec(encoded_data, config::standard()).unwrap().as_slice())?;
-    
+    encoded_data.push(TCP::Join { lobby_id });
+    stream.try_write(
+        bincode::serde::encode_to_vec(encoded_data, config::standard())
+            .unwrap()
+            .as_slice(),
+    )?;
+
     let mut buf = [0; 200];
 
     stream.ready(Interest::READABLE).await?;
     stream.try_read(&mut buf)?;
-    
+
     println!("uid: {:x?}", buf);
-    let mut uuid= 0;
-    
-    let decoded: (Vec<NetworkMessageType>, _) = bincode::serde::decode_from_slice(&buf, config::standard()).unwrap();
-    
+    let mut uuid = 0;
+
+    let decoded: (Vec<TCP>, _) =
+        bincode::serde::decode_from_slice(&buf, config::standard()).unwrap();
+
     println!("{:?}", decoded);
-    
+
     for m in decoded.0 {
         match m {
-            NetworkMessageType::PlayerId {player_uid} => {
+            TCP::PlayerId { player_uid } => {
                 uuid = player_uid;
             }
             _ => {}
         }
     }
-    
+
     Ok(uuid)
 }
 
 pub async fn connect_to_server(socket: &UdpSocket, addr: SocketAddr) -> Result<(), io::Error> {
-    match socket.connect(addr).await { 
+    match socket.connect(addr).await {
         Ok(_) => {
             println!("connected to server");
             Ok(())
-        },
-        Err(_) => {
-            retry_connection(socket, addr, 5).await
         }
+        Err(_) => retry_connection(socket, addr, 5).await,
     }
 }
 
-pub async fn retry_connection(socket: &UdpSocket, addr: SocketAddr, retry_count: u8) -> Result<(), io::Error> {
+pub async fn retry_connection(
+    socket: &UdpSocket,
+    addr: SocketAddr,
+    retry_count: u8,
+) -> Result<(), io::Error> {
     for _ in 0..retry_count {
-        match socket.connect(addr).await { 
+        match socket.connect(addr).await {
             Ok(_) => {
                 println!("connected to server");
                 return Ok(());
-            },
+            }
             Err(_) => {
                 println!("failed to connect to server, retrying...");
             }
         }
     }
-    Err(io::Error::new(io::ErrorKind::Other, "failed to connect to server"))
+    Err(io::Error::new(
+        io::ErrorKind::Other,
+        "failed to connect to server",
+    ))
 }

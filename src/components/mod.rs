@@ -1,3 +1,3 @@
-pub mod player;
 pub mod common;
 pub mod entity;
+pub mod player;
