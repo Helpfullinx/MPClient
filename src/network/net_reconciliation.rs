@@ -58,20 +58,3 @@ pub fn sequence_message(
     }));
     message
 }
-
-pub fn parse_udp_message(
-    connection: &mut ResMut<Communication>,
-) -> Option<Vec<NetworkMessage<UDP>>> {
-    let mut message = None;
-    while !connection.udp_rx.is_empty() {
-        match connection.udp_rx.try_recv() {
-            Ok((bytes, _)) => {
-                let decoded =
-                    bincode::serde::decode_from_slice(&bytes, config::standard()).unwrap();
-                message = Some(decoded.0)
-            }
-            Err(_) => {}
-        }
-    }
-    message
-}

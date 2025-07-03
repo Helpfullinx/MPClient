@@ -126,7 +126,7 @@ pub fn reconcile_player_position(
     let mut server_player = None;
     let mut seq_num = None;
     let mut count = 0;
-    for m in &net_messages.udp_message {
+    for m in &net_messages.udp_messages {
         match &m.0 {
             UDP::Players { players } => {
                 count += 1;
@@ -184,7 +184,7 @@ pub fn spawn_players(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut net_message: ResMut<NetworkMessages>,
 ) {
-    let res = &mut net_message.udp_message;
+    let res = &mut net_message.udp_messages;
     for m in res {
         match &m.0 {
             UDP::Spawn { player_uid } => {
@@ -213,7 +213,7 @@ pub fn update_players(
     info: Res<PlayerInfo>,
     mut net_message: ResMut<NetworkMessages>,
 ) {
-    for m in net_message.udp_message.iter_mut() {
+    for m in net_message.udp_messages.iter_mut() {
         match &m.0 {
             UDP::Players {
                 players: updated_players,
