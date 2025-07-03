@@ -1,41 +1,69 @@
-use std::collections::HashMap;
-use bevy::ecs::entity;
-use bevy::prelude::{Commands, Component, Query};
-use serde::{Deserialize, Serialize};
 use crate::components::common::{Id, Position};
 use crate::components::entity::Entity;
 use crate::components::player::PlayerBundle;
+use bevy::ecs::entity;
+use bevy::prelude::{Commands, Component, Query};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
+pub trait NetworkMessageType {}
 
-// #[derive(Component, Serialize, Deserialize, Clone)]
-// pub struct NetworkMessage(pub NetworkMessageType);
+#[derive(Component, Serialize, Deserialize, Clone, Debug)]
+pub struct NetworkMessage<T: NetworkMessageType>(pub T);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct NetworkMessage(pub NetworkMessageType);
+#[derive(Component)]
+pub struct UdpMessage;
 
-type BitMask = u8;
+#[derive(Component)]
+pub struct TcpMessage;
+
 pub type SequenceNumber = u32;
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum NetworkMessageType {
-    Sequence { sequence_number: u32 },
-    Spawn { player_uid: Vec<Id> },
-    Players { players: HashMap<u128, PlayerBundle> },
-    Entities { entities: Vec<(Entity, Position)> },
-    Input { keymask: BitMask, player_uid: u128 },
-    Join { lobby_id: u128 },
-    PlayerId { player_uid: u128 },
+pub type BitMask = u8;
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum UDP {
+    Sequence {
+        sequence_number: SequenceNumber,
+    },
+    Spawn {
+        player_uid: Vec<Id>,
+    },
+    Players {
+        players: HashMap<u128, PlayerBundle>,
+    },
+    Entities {
+        entities: Vec<(Entity, Position)>,
+    },
+    Input {
+        keymask: BitMask,
+        player_id: u128,
+    },
 }
 
-pub fn build_udp_message(
-    messages: &mut Query<(entity::Entity, &NetworkMessage)>,
-    commands: &mut Commands
-) -> Vec<NetworkMessage> {
-    let mut net_message = Vec::new();
-    for n in messages.iter_mut() {
-        net_message.push(n.1.clone());
-        commands.entity(n.0).despawn();
-    }
+impl NetworkMessageType for UDP {}
 
-    net_message
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum TCP {
+    TextMessage {
+        message: String,
+        // Time stamp probably
+    },
+    Join {
+        lobby_id: u128,
+    },
+    PlayerId {
+        player_uid: u128,
+    },
+}
+
+impl NetworkMessageType for TCP {}
+
+#[inline]
+pub fn build_udp_message(
+    messages: &mut Query<(entity::Entity, &NetworkMessage<UDP>)>,
+    commands: &mut Commands,
+) -> Vec<NetworkMessage<UDP>> {
+    Vec::from_iter(messages.iter_mut().map(|x| {
+        commands.entity(x.0).despawn();
+        x.1.clone()
+    }))
 }

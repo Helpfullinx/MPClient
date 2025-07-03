@@ -34,8 +34,10 @@ async fn main() -> io::Result<()> {
     } else {
         1
     };
+    let ip = "127.0.0.1";
 
-    let player_uid = init_connection(SocketAddr::new("100.113.246.10".parse().unwrap(), 4444), l_id).await?;
+//     let player_uid = init_connection(SocketAddr::new("100.113.246.10".parse().unwrap(), 4444), l_id).await?;
+    let player_uid = init_connection(SocketAddr::new(ip.parse().unwrap(), 4444), l_id).await?;
 
     let (udp_send_tx, udp_send_rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);
     let (udp_receive_tx, udp_receive_rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);
@@ -49,10 +51,10 @@ async fn main() -> io::Result<()> {
         .add_plugins(DefaultInspectorConfigPlugin)
         .add_plugins(EguiPlugin {enable_multipass_for_primary_context: true})
         .add_plugins(ResourceInspectorPlugin::<PlayerInfo>::default())
-        .insert_resource(ServerSocket(SocketAddr::new("100.113.246.10".parse().unwrap(), 4444)))
+        .insert_resource(ServerSocket(SocketAddr::new(ip.parse().unwrap(), 4444)))
         .insert_resource(Communication::new(udp_send_tx, udp_receive_rx, tcp_send_tx, tcp_receive_rx))
         .insert_resource(PlayerInfo { current_player_id: player_uid , player_inputs: 0 })
-        .insert_resource(NetworkMessages{ message: vec![] })
+        .insert_resource(NetworkMessages{ udp_message: vec![], tcp_message: vec![] })
         .insert_resource(Lobby(l_id))
         .insert_resource(ReconcileBuffer{ buffer: HashMap::new(), sequence_counter: 0})
         .insert_resource(Time::<Fixed>::from_hz(60.0))
