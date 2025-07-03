@@ -11,12 +11,6 @@ pub trait NetworkMessageType {}
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkMessage<T: NetworkMessageType>(pub T);
 
-#[derive(Component)]
-pub struct UdpMessage;
-
-#[derive(Component)]
-pub struct TcpMessage;
-
 pub type SequenceNumber = u32;
 pub type BitMask = u8;
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -43,16 +37,9 @@ impl NetworkMessageType for UDP {}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TCP {
-    TextMessage {
-        message: String,
-        // Time stamp probably
-    },
-    Join {
-        lobby_id: u128,
-    },
-    PlayerId {
-        player_uid: u128,
-    },
+    TextMessage { message: String },
+    Join { lobby_id: u128 },
+    PlayerId { player_uid: u128 },
 }
 
 impl NetworkMessageType for TCP {}

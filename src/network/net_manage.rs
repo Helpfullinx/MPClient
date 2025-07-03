@@ -1,6 +1,5 @@
-use crate::network::net_message::{NetworkMessageType, TCP};
 use bevy::prelude::{Component, Resource};
-use bincode::config;
+use std::io::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io;
@@ -44,6 +43,73 @@ impl Communication {
     }
 }
 
+pub async fn start_tcp_task(
+    bind_addr: SocketAddr,
+    mut outbound: Receiver<(Vec<u8>, Arc<TcpStream>)>,
+    inbound: Sender<(Vec<u8>, Arc<TcpStream>)>,
+) -> Result<(), Error> {
+    let socket = TcpSocket::new_v4()?;
+
+    let inbound_accept = inbound.clone();
+    // Task responsible for accepting new TCP connections
+    tokio::spawn(async move {
+        // Accept first connection in queue
+        match socket.connect(bind_addr).await {
+            Ok(stream) => {
+                println!("Connected to server");
+
+                // TODO: Apparently this can create false positives and what it reads because of that may be empty, therefore we have to check that
+                // Get the ready-ness value for the stream
+                let stream = Arc::new(stream);
+                
+                // Save stream
+                inbound_accept.send((vec![], stream.clone()));
+
+                // Spawn a task dedicated to continuously reading from this client
+                let inbound_task = inbound_accept.clone();
+                let stream_task = stream.clone();
+                let mut read_buf = vec![0u8; 2048];
+                loop {
+                    let ready = stream_task.ready(Interest::READABLE).await.unwrap();
+                    if ready.is_readable() {
+                        match stream_task.try_read(&mut read_buf) {
+                            Ok(0) => break, // connection closed
+                            Ok(len) => {
+                                let _ = inbound_task
+                                    .send((read_buf[..len].to_vec(), stream_task.clone()))
+                                    .await;
+                            }
+                            Err(e) => {
+                                println!("Couldn't read: {:?}", e);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => todo!(),
+        }
+    });
+
+    // Task responsible for sending queued TCP messages
+    tokio::spawn(async move {
+        while let Some(bytes) = outbound.recv().await {
+            let ready = stream.ready(Interest::WRITABLE).await.unwrap();
+
+            if ready.is_writable() {
+                match stream.try_write(&*bytes) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("Couldn't write: {:?}", e)
+                    }
+                };
+            }
+        }
+    });
+
+    Ok(())
+}
+
 pub async fn start_udp_task(
     bind_addr: &str,
     mut outbound: Receiver<(Vec<u8>, SocketAddr)>,
@@ -84,44 +150,6 @@ pub async fn start_udp_task(
     });
 
     Ok(())
-}
-
-pub async fn init_connection(addr: SocketAddr, lobby_id: u128) -> Result<u128, io::Error> {
-    let socket = TcpSocket::new_v4()?;
-    let stream = socket.connect(addr).await?;
-
-    stream.ready(Interest::WRITABLE).await?;
-    let mut encoded_data = Vec::new();
-    encoded_data.push(TCP::Join { lobby_id });
-    stream.try_write(
-        bincode::serde::encode_to_vec(encoded_data, config::standard())
-            .unwrap()
-            .as_slice(),
-    )?;
-
-    let mut buf = [0; 200];
-
-    stream.ready(Interest::READABLE).await?;
-    stream.try_read(&mut buf)?;
-
-    println!("uid: {:x?}", buf);
-    let mut uuid = 0;
-
-    let decoded: (Vec<TCP>, _) =
-        bincode::serde::decode_from_slice(&buf, config::standard()).unwrap();
-
-    println!("{:?}", decoded);
-
-    for m in decoded.0 {
-        match m {
-            TCP::PlayerId { player_uid } => {
-                uuid = player_uid;
-            }
-            _ => {}
-        }
-    }
-
-    Ok(uuid)
 }
 
 pub async fn connect_to_server(socket: &UdpSocket, addr: SocketAddr) -> Result<(), io::Error> {
