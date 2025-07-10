@@ -1,4 +1,4 @@
 use bevy::prelude::Resource;
 
-#[derive(Resource)]
-pub struct Lobby(pub u128);
+// #[derive(Resource)]
+// pub struct Lobby(pub u128);

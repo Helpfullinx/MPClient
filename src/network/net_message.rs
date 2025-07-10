@@ -1,5 +1,5 @@
 use crate::components::chat::ChatMessage;
-use crate::components::common::{Id, Position};
+use crate::components::common::Id;
 use crate::components::entity::Entity;
 use crate::components::player::PlayerBundle;
 use bevy::prelude::Component;
@@ -18,18 +18,12 @@ pub enum UDP {
     Sequence {
         sequence_number: SequenceNumber,
     },
-    Spawn {
-        player_uid: Vec<Id>,
-    },
     Players {
-        players: HashMap<u128, PlayerBundle>,
-    },
-    Entities {
-        entities: Vec<(Entity, Position)>,
+        players: HashMap<Id, PlayerBundle>,
     },
     Input {
         keymask: BitMask,
-        player_id: u128,
+        player_id: Id,
     },
 }
 
@@ -38,17 +32,17 @@ impl NetworkMessageType for UDP {}
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TCP {
     ChatMessage {
-        player_id: u128,
+        player_id: Id,
         message: ChatMessage,
     },
     Chat {
-        messages: Vec<(u128, ChatMessage)>,
+        messages: Vec<(Id, ChatMessage)>
     },
     Join {
-        lobby_id: u128,
+        lobby_id: Id,
     },
     PlayerId {
-        player_uid: u128,
+        player_uid: Id,
     },
 }
 

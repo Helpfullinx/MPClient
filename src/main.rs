@@ -3,7 +3,7 @@ mod network;
 
 use crate::components::chat::{Chat, chat_window};
 use crate::components::hud::Hud;
-use crate::components::lobby::Lobby;
+// use crate::components::lobby::Lobby;
 use crate::components::player::{PlayerInfo, player_control, snap_camera_to_player};
 use crate::network::net_manage::{
     Communication, TcpConnection, UdpConnection, start_tcp_task, start_udp_task,
@@ -26,8 +26,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use crate::components::common::Id;
 
-const LOBBY_ID: u128 = 1;
+const LOBBY_ID: u32 = 1;
 fn join_lobby(
     mut keyboard_input: EventReader<KeyboardInput>,
     mut connection: ResMut<TcpConnection>,
@@ -42,7 +43,7 @@ fn join_lobby(
                 if connection.stream.is_some() {
                     connection
                         .output_message
-                        .push(NetworkMessage(TCP::Join { lobby_id: LOBBY_ID }));
+                        .push(NetworkMessage(TCP::Join { lobby_id: Id(LOBBY_ID) }));
                 }
             }
             _ => {}
@@ -52,26 +53,15 @@ fn join_lobby(
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-
-    let l_id = if args.len() > 1 {
-        args[1]
-            .parse::<u128>()
-            .expect("First argument must be an Natural number")
-    } else {
-        1
-    };
-
     let (udp_send_tx, udp_send_rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);
     let (udp_receive_tx, udp_receive_rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);
     let (tcp_send_tx, tcp_send_rx) = mpsc::channel::<(Vec<u8>, Arc<TcpStream>)>(1_000);
     let (tcp_receive_tx, tcp_receive_rx) = mpsc::channel::<(Vec<u8>, Arc<TcpStream>)>(1_000);
-
-    let local_addr = SocketAddr::from(([0, 0, 0, 0], 0));
-    let remote_addr = SocketAddr::from(([127, 0, 0, 1], 4444));
+    
+    let remote_addr = SocketAddr::from(([100, 113, 246, 10], 4444));
 
     start_tcp_task(remote_addr, tcp_send_rx, tcp_receive_tx).await?;
-    start_udp_task(local_addr, udp_send_rx, udp_receive_tx, 1).await?;
+    start_udp_task(remote_addr, udp_send_rx, udp_receive_tx, 1).await?;
 
     App::new()
         .add_plugins(DefaultPlugins)
@@ -87,7 +77,7 @@ async fn main() -> io::Result<()> {
             tcp_receive_rx,
         ))
         .insert_resource(UdpConnection {
-            ip_addrs: None,
+            remote_socket: None,
             input_packet_buffer: Default::default(),
             output_message: vec![],
         })
@@ -97,10 +87,9 @@ async fn main() -> io::Result<()> {
             output_message: vec![],
         })
         .insert_resource(PlayerInfo {
-            current_player_id: 0,
+            current_player_id: Id(0),
             player_inputs: 0,
         })
-        .insert_resource(Lobby(l_id))
         .insert_resource(ReconcileBuffer {
             buffer: HashMap::new(),
             sequence_counter: 0,

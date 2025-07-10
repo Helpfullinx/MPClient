@@ -19,7 +19,7 @@ pub struct Communication {
 
 #[derive(Resource, Debug)]
 pub struct UdpConnection {
-    pub ip_addrs: Option<SocketAddr>,
+    pub remote_socket: Option<SocketAddr>,
     pub input_packet_buffer: VecDeque<Packet>,
     pub output_message: Vec<NetworkMessage<UDP>>,
 }
@@ -52,8 +52,51 @@ impl Communication {
     }
 }
 
+pub async fn start_udp_task(
+    remote_addr: SocketAddr,
+    mut outbound: Receiver<(Vec<u8>, SocketAddr)>,
+    inbound: Sender<(Vec<u8>, SocketAddr)>,
+    pool_size: usize,
+) -> Result<(), Error> {
+    let socket = Arc::new(UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], 0))).await?);
+
+    println!("Socket bound on {:?}", socket.local_addr()?);
+
+    let _ = inbound.send((vec![], remote_addr)).await;
+
+    for _ in 0..pool_size {
+        let inbound_tx = inbound.clone();
+        let s = socket.clone();
+
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 1024];
+            loop {
+                match s.clone().recv_from(&mut buf).await {
+                    Ok((len, addr)) => {
+                        let _ = inbound_tx.send((buf[..len].to_vec(), addr)).await;
+                    }
+                    Err(e) => {
+                        eprintln!("recv error: {e}, continuing...");
+                    }
+                }
+            }
+        });
+    }
+
+    tokio::spawn(async move {
+        while let Some((bytes, addr)) = outbound.recv().await {
+            match socket.clone().send_to(&bytes, &addr).await {
+                Ok(_) => {}
+                Err(e) => println!("send error: {}", e),
+            }
+        }
+    });
+
+    Ok(())
+}
+
 pub async fn start_tcp_task(
-    bind_addr: SocketAddr,
+    remote_addr: SocketAddr,
     mut outbound: Receiver<(Vec<u8>, Arc<TcpStream>)>,
     inbound: Sender<(Vec<u8>, Arc<TcpStream>)>,
 ) -> Result<(), Error> {
@@ -63,9 +106,9 @@ pub async fn start_tcp_task(
     // Task responsible for accepting new TCP connections
     tokio::spawn(async move {
         // Accept first connection in queue
-        match socket.connect(bind_addr).await {
+        match socket.connect(remote_addr).await {
             Ok(stream) => {
-                println!("Connected to server: {:?}", bind_addr.ip().to_string());
+                println!("Connected to server via TCP: {:?}", remote_addr.ip().to_string());
 
                 // TODO: Apparently this can create false positives and what it reads because of that may be empty, therefore we have to check that
                 // Get the ready-ness value for the stream
@@ -82,7 +125,7 @@ pub async fn start_tcp_task(
                     let ready = stream_task.ready(Interest::READABLE).await.unwrap();
                     if ready.is_readable() {
                         match stream_task.try_read(&mut read_buf) {
-                            // Ok(0) => { break } // connection closed
+                            Ok(0) => { break }
                             Ok(len) => {
                                 let _ = inbound_task
                                     .send((read_buf[..len].to_vec(), stream_task.clone()))
@@ -118,79 +161,4 @@ pub async fn start_tcp_task(
     });
 
     Ok(())
-}
-
-pub async fn start_udp_task(
-    bind_addr: SocketAddr,
-    mut outbound: Receiver<(Vec<u8>, SocketAddr)>,
-    inbound: Sender<(Vec<u8>, SocketAddr)>,
-    pool_size: usize,
-) -> Result<(), io::Error> {
-    let socket = Arc::new(UdpSocket::bind(bind_addr).await?);
-
-    println!("Socket bound on {:?}", socket.local_addr()?);
-
-    let _ = inbound.send((vec![], bind_addr)).await;
-
-    for _ in 0..pool_size {
-        let inbound_tx = inbound.clone();
-        let s = socket.clone();
-
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 1024];
-            loop {
-                match s.clone().recv_from(&mut buf).await {
-                    Ok((len, addr)) => {
-                        let _ = inbound_tx.send((buf[..len].to_vec(), addr)).await;
-                    }
-                    Err(e) => {
-                        eprintln!("recv error: {e}, continuing...");
-                    }
-                }
-            }
-        });
-    }
-
-    tokio::spawn(async move {
-        while let Some((bytes, addr)) = outbound.recv().await {
-            match socket.clone().send_to(&bytes, &addr).await {
-                Ok(_) => {}
-                Err(e) => println!("send error: {}", e),
-            }
-        }
-    });
-
-    Ok(())
-}
-
-pub async fn connect_to_server(socket: &UdpSocket, addr: SocketAddr) -> Result<(), io::Error> {
-    match socket.connect(addr).await {
-        Ok(_) => {
-            println!("connected to server");
-            Ok(())
-        }
-        Err(_) => retry_connection(socket, addr, 5).await,
-    }
-}
-
-pub async fn retry_connection(
-    socket: &UdpSocket,
-    addr: SocketAddr,
-    retry_count: u8,
-) -> Result<(), io::Error> {
-    for _ in 0..retry_count {
-        match socket.connect(addr).await {
-            Ok(_) => {
-                println!("connected to server");
-                return Ok(());
-            }
-            Err(_) => {
-                println!("failed to connect to server, retrying...");
-            }
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::Other,
-        "failed to connect to server",
-    ))
 }

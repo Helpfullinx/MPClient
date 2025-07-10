@@ -1,9 +1,10 @@
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Reflect};
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Id(pub u128);
+#[derive(Reflect, Component, Serialize, Deserialize, Clone, Copy, Debug, Hash, PartialEq, Default)]
+#[derive(Eq)]
+pub struct Id(pub u32);
 
 #[derive(
     Component, Encode, Decode, Serialize, Deserialize, Copy, Clone, Debug, Default, PartialEq,

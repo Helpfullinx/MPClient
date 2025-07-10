@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Reflect, Resource, Default)]
 #[reflect(Resource)]
 pub struct PlayerInfo {
-    pub current_player_id: u128,
+    pub current_player_id: Id,
     pub player_inputs: u8,
 }
 
@@ -35,7 +35,7 @@ impl PlayerBundle {
     }
 }
 
-pub fn set_player_id(player_info: &mut ResMut<PlayerInfo>, player_id: u128) {
+pub fn set_player_id(player_info: &mut ResMut<PlayerInfo>, player_id: Id) {
     player_info.current_player_id = player_id;
 }
 
@@ -46,7 +46,7 @@ pub fn snap_camera_to_player(
 ) {
     let mut cam = camera.single_mut().unwrap();
     for player in players.iter() {
-        if player.1.0 == player_info.current_player_id {
+        if *player.1 == player_info.current_player_id {
             cam.translation.x = player.0.translation.x;
             cam.translation.y = player.0.translation.y;
         }
@@ -61,7 +61,7 @@ pub fn player_control(
     mut connection: ResMut<UdpConnection>,
     mut commands: Commands,
 ) {
-    if connection.ip_addrs.is_some() {
+    if connection.remote_socket.is_some() {
         let mut encoded_input = 0u8;
 
         if keyboard_input.pressed(KeyCode::KeyW) {
@@ -81,7 +81,7 @@ pub fn player_control(
         let move_speed = 0.1;
 
         for (mut transform, id) in players.iter_mut() {
-            if player_id == id.0 {
+            if player_id == *id {
                 if encoded_input & 1 > 0 {
                     transform.translation.y += move_speed;
                 }
@@ -123,7 +123,7 @@ pub fn player_control(
 
 pub fn reconcile_player_position(
     message_seq_num: SequenceNumber,
-    server_players: &HashMap<u128, PlayerBundle>,
+    server_players: &HashMap<Id, PlayerBundle>,
     client_players: &mut Query<(&mut Transform, &Id)>,
     player_info: &Res<PlayerInfo>,
     reconcile_buffer: &Res<ReconcileBuffer>,
@@ -142,7 +142,7 @@ pub fn reconcile_player_position(
     }
 
     for (mut transform, id) in client_players.iter_mut() {
-        if player_info.current_player_id == id.0
+        if player_info.current_player_id == *id
             && server_player.is_some()
             && client_player.is_some()
         {
@@ -191,20 +191,20 @@ pub fn update_players(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-    server_players: &HashMap<u128, PlayerBundle>,
+    server_players: &HashMap<Id, PlayerBundle>,
     client_players: &mut Query<(&mut Transform, &Id)>,
     info: &Res<PlayerInfo>,
 ) {
     let mut existing_players = HashSet::new();
     for mut player in client_players.iter_mut() {
-        existing_players.insert(player.1.0);
+        existing_players.insert(player.1);
 
-        let pos = match server_players.get(&player.1.0) {
+        let pos = match server_players.get(player.1) {
             Some(p) => p.position,
             None => continue,
         };
 
-        if player.1.0 != info.current_player_id {
+        if *player.1 != info.current_player_id {
             player.0.translation.x = pos.x;
             player.0.translation.y = pos.y;
         }
@@ -217,7 +217,7 @@ pub fn update_players(
                 .spawn((
                     Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(1.0)),
                     GlobalTransform::default(),
-                    Id(*p.0),
+                    *p.0,
                 ))
                 .id();
 
@@ -232,7 +232,7 @@ pub fn update_players(
 
                 // Spawn the text as a sibling with no scale
                 parent.spawn((
-                    Text2d::new(&*p.0.to_string()),
+                    Text2d::new(&*p.0.0.to_string()),
                     TextLayout::new_with_justify(JustifyText::Center),
                     Transform::from_xyz(0.0, 64.0, 0.0).with_scale(Vec3::splat(0.5)), // unscaled
                     GlobalTransform::default(),

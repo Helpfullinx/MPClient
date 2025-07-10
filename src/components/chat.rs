@@ -6,10 +6,14 @@ use bevy::input::ButtonState;
 use bevy::prelude::{Component, EventReader, KeyCode, Local, Query, Res, ResMut, Text, With};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use crate::components::common::Id;
+
+const CHAT_HISTORY_LEN: usize = 10;
+const MAX_CHAT_MESSAGE_LENGTH: usize = 50;
 
 #[derive(Component)]
 pub struct Chat {
-    pub chat_history: VecDeque<(u128, ChatMessage)>,
+    pub chat_history: VecDeque<(Id, ChatMessage)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -25,6 +29,8 @@ pub fn chat_window(
     mut is_active: Local<bool>,
     mut chat: Query<(&mut Text, &mut Chat), With<Chat>>,
 ) {
+    let message_full = message_buffer.len() >= MAX_CHAT_MESSAGE_LENGTH;
+    
     for k in keyboard_input.read() {
         if k.state == ButtonState::Released {
             continue;
@@ -46,13 +52,14 @@ pub fn chat_window(
                                 },
                             }))
                     }
-                    message_buffer.clear()
+                    message_buffer.clear();
+                    *is_active = false;
                 }
                 Key::Character(c) => {
-                    message_buffer.push_str(c);
+                    if !message_full { message_buffer.push_str(c) }
                 }
                 Key::Space => {
-                    message_buffer.push_str(" ");
+                    if !message_full { message_buffer.push_str(" ") }
                 }
                 _ => {}
             }
@@ -77,7 +84,7 @@ pub fn chat_window(
         for c in chat.1.chat_history.iter_mut() {
             chat.0.0.push_str(&format!(
                 "{:?}: {:?}\n",
-                c.0.to_string(),
+                c.0.0.to_string(),
                 c.1.message.to_string()
             ));
         }
@@ -89,13 +96,14 @@ pub fn chat_window(
     }
 }
 
-const CHAT_HISTORY_LEN: usize = 10;
-
-pub fn add_chat_message(messages: &mut Vec<(u128, ChatMessage)>, chat: &mut Query<&mut Chat>) {
+pub fn add_chat_message(
+    messages: &mut Vec<(Id, ChatMessage)>,
+    chat: &mut Query<&mut Chat>
+) {
     if let Some(mut chat) = chat.single_mut().ok() {
         chat.chat_history.clear();
         while !messages.is_empty() {
-            if chat.chat_history.len() > CHAT_HISTORY_LEN {
+            if chat.chat_history.len() >= CHAT_HISTORY_LEN {
                 chat.chat_history.pop_back();
             }
             let message = messages.pop().unwrap();

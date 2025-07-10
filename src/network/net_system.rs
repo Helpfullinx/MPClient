@@ -12,18 +12,16 @@ use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 pub fn udp_client_net_receive(
     mut comm: ResMut<Communication>,
     mut connection: ResMut<UdpConnection>,
-    command: Commands,
 ) {
     while !comm.udp_rx.is_empty() {
         match comm.udp_rx.try_recv() {
             Ok((bytes, addr)) => {
-                // println!("Received UDP packet from {}", addr);
-                match connection.ip_addrs {
+                match connection.remote_socket {
                     Some(_) => {
                         connection.input_packet_buffer.push_back(Packet { bytes });
                     }
                     None => {
-                        connection.ip_addrs = Some(addr);
+                        connection.remote_socket = Some(addr);
                     }
                 }
             }
@@ -49,25 +47,29 @@ pub fn udp_client_net_send(
             reconciled_objects,
             &mut message_buffer,
         );
-        let message =
-            bincode::serde::encode_to_vec(&connection.output_message, config::standard())
-                .unwrap();
-
-        match comm.udp_tx.try_send((
-            message,
-            SocketAddr::from(([127, 0, 0, 1], 4444)), /*c.ip_addrs*/
-        )) {
-            Ok(()) => {
-                connection.output_message.clear();
+        
+        let encoded_message = match bincode::serde::encode_to_vec(&connection.output_message, config::standard()) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("Couldn't encode UDP message: {:?}", e);
+                return;
             }
-            Err(TrySendError::Full(_)) => {}
-            Err(TrySendError::Closed(_)) => {}
+        };
+
+        if let Some(remote_socket) = &connection.remote_socket {
+            match comm.udp_tx.try_send(( encoded_message, *remote_socket )) {
+                Ok(()) => {
+                    connection.output_message.clear();
+                }
+                Err(TrySendError::Full(_)) => {}
+                Err(TrySendError::Closed(_)) => {}
+            }
         }
+        
     }
 }
 
 pub fn tcp_client_net_receive(
-    commands: Commands,
     mut connection: ResMut<TcpConnection>,
     mut comm: ResMut<Communication>,
 ) {
@@ -89,9 +91,13 @@ pub fn tcp_client_net_receive(
 
 pub fn tcp_client_net_send(comm: ResMut<Communication>, mut connection: ResMut<TcpConnection>) {
     if !connection.output_message.is_empty() {
-        let encoded_message =
-            bincode::serde::encode_to_vec(&connection.output_message, config::standard())
-                .unwrap();
+        let encoded_message = match bincode::serde::encode_to_vec(&connection.output_message, config::standard()) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("Couldn't encode TCP message: {:?}", e);
+                return;
+            }
+        };
 
         if let Some(s) = &connection.stream {
             match comm.tcp_tx.try_send((encoded_message, s.clone())) {

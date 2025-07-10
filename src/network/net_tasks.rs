@@ -21,12 +21,17 @@ pub fn handle_udp_message(
     reconcile_buffer: Res<ReconcileBuffer>,
 ) {
     while let Some(p) = connection.input_packet_buffer.pop_front() {
-        let decoded: (Vec<UDP>, usize) =
-            bincode::serde::decode_from_slice(&p.bytes, config::standard()).unwrap();
+        let decoded_message: (Vec<UDP>, usize) = match bincode::serde::decode_from_slice(&p.bytes, config::standard()) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("Couldn't decode UDP message: {:?}", e);
+                continue;
+            }
+        };
 
         let mut seq_num = None;
 
-        for m in decoded.0.iter() {
+        for m in decoded_message.0.iter() {
             match m {
                 UDP::Sequence { sequence_number } => {
                     seq_num = Some(sequence_number);
@@ -39,7 +44,7 @@ pub fn handle_udp_message(
             continue;
         };
 
-        for m in decoded.0.iter() {
+        for m in decoded_message.0.iter() {
             match m {
                 UDP::Players { players } => {
                     reconcile_player_position(
@@ -70,11 +75,15 @@ pub fn handle_tcp_message(
     mut connection: ResMut<TcpConnection>,
 ) {
     while let Some(p) = connection.input_packet_buffer.pop_front() {
-        let mut decoded: (Vec<TCP>, usize) =
-            bincode::serde::decode_from_slice(&p.bytes, config::standard()).unwrap();
-        println!("{:?}", decoded);
-
-        for m in decoded.0.iter_mut() {
+        let mut decoded_message: (Vec<TCP>, usize) = match bincode::serde::decode_from_slice(&p.bytes, config::standard()) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("Couldn't decode TCP message: {:?}", e);
+                continue;
+            }
+        };
+        
+        for m in decoded_message.0.iter_mut() {
             match m {
                 TCP::ChatMessage { player_id, message } => {}
                 TCP::Chat { messages } => {
