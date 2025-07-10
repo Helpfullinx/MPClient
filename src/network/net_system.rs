@@ -1,34 +1,30 @@
-use crate::network::net_message::{NetworkMessage, TCP, UDP, build_udp_message};
+use crate::Communication;
+use crate::network::net_manage::{Packet, TcpConnection, UdpConnection};
 use crate::network::net_reconciliation::{
-    ReconcileBuffer, ReconcileObject, build_reconcile_object_list,
-    sequence_message,
+    ReconcileBuffer, ReconcileObject, build_reconcile_object_list, sequence_message,
 };
-use crate::{Communication, TcpSocket, UdpSocket};
-use bevy::prelude::{Commands, Entity, Query, Res, ResMut, Resource};
+use bevy::prelude::{Commands, Entity, Query, ResMut};
 use bincode::config;
+use std::net::SocketAddr;
+use tokio::net::TcpStream;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 
-#[derive(Resource, Debug)]
-pub struct NetworkMessages {
-    pub udp_messages: Vec<Vec<NetworkMessage<UDP>>>,
-    pub tcp_messages: Vec<Vec<NetworkMessage<TCP>>>,
-}
-
 pub fn udp_client_net_receive(
-    mut connection: ResMut<Communication>,
-    mut net_message: ResMut<NetworkMessages>,
+    mut comm: ResMut<Communication>,
+    mut connection: ResMut<UdpConnection>,
+    mut command: Commands,
 ) {
-    while !connection.udp_rx.is_empty() {
-        match connection.udp_rx.try_recv() {
-            Ok((bytes, _)) => {
-                let decoded =
-                    bincode::serde::decode_from_slice(&bytes, config::standard()).unwrap();
-                
-                match decoded.0 {
-                    Some(m) => {
-                        net_message.udp_messages.push(m);
+    while !comm.udp_rx.is_empty() {
+        match comm.udp_rx.try_recv() {
+            Ok((bytes, addr)) => {
+                // println!("Received UDP packet from {}", addr);
+                match connection.ip_addrs {
+                    Some(_) => {
+                        connection.input_packet_buffer.push_back(Packet { bytes });
                     }
-                    None => {}
+                    None => {
+                        connection.ip_addrs = Some(addr);
+                    }
                 }
             }
             Err(_) => {}
@@ -38,69 +34,77 @@ pub fn udp_client_net_receive(
 
 pub fn udp_client_net_send(
     comm: ResMut<Communication>,
-    server_socket: Res<UdpSocket>,
-    mut messages: Query<(Entity, &NetworkMessage<UDP>)>,
+    mut connection: ResMut<UdpConnection>,
     mut reconcile_objects: Query<(Entity, &ReconcileObject)>,
     mut message_buffer: ResMut<ReconcileBuffer>,
     mut commands: Commands,
 ) {
     // Takes in all NetworkMessage that have been added to ECS and builds Network
-    let net_message = build_udp_message(&mut messages, &mut commands);
+    // let net_message = build_udp_message(&mut messages, &mut commands);
     let reconciled_objects = build_reconcile_object_list(&mut reconcile_objects, &mut commands);
-    let sm = sequence_message(net_message, reconciled_objects, &mut message_buffer);
 
-    let message = bincode::serde::encode_to_vec(sm, config::standard()).unwrap();
+    if !connection.output_message.is_empty() {
+        sequence_message(
+            &mut connection.output_message,
+            reconciled_objects,
+            &mut message_buffer,
+        );
+        let message =
+            bincode::serde::encode_to_vec(connection.output_message.clone(), config::standard())
+                .unwrap();
 
-    match comm.udp_tx.try_send((message, server_socket.0)) {
-        Ok(()) => {}
-        Err(TrySendError::Full(_)) => {}
-        Err(TrySendError::Closed(_)) => {}
+        match comm.udp_tx.try_send((
+            message,
+            SocketAddr::from(([127, 0, 0, 1], 4444)), /*c.ip_addrs*/
+        )) {
+            Ok(()) => {
+                connection.output_message.clear();
+            }
+            Err(TrySendError::Full(_)) => {}
+            Err(TrySendError::Closed(_)) => {}
+        }
     }
-}
-
-pub fn parse_tcp_message(
-    bytes: Vec<u8>
-) -> Vec<NetworkMessage<TCP>> {
-    bincode::serde::decode_from_slice(&bytes, config::standard()).unwrap().0
 }
 
 pub fn tcp_client_net_receive(
     mut commands: Commands,
-    mut messages: ResMut<NetworkMessages>,
-    mut connection: ResMut<TcpSocket>,
+    mut connection: ResMut<TcpConnection>,
     mut comm: ResMut<Communication>,
 ) {
     while !comm.tcp_rx.is_empty() {
         match comm.tcp_rx.try_recv() {
-            Ok((bytes, stream)) => {
-                if let Some(_) = connection.0 {
-                    let message = parse_tcp_message(bytes);                    
-                    messages.tcp_messages.push(message);     
-                } else {
-                    connection.0 = Some(stream.clone());
+            Ok((bytes, stream)) => match connection.stream {
+                Some(_) => {
+                    connection.input_packet_buffer.push_back(Packet { bytes });
                 }
-            }
+                None => {
+                    connection.stream = Some(stream);
+                }
+            },
             Err(TryRecvError::Empty) => break,
             Err(TryRecvError::Disconnected) => break,
         }
     }
 }
 
-pub fn tcp_client_net_send(
-    comm: ResMut<Communication>,
-    mut connection: ResMut<TcpSocket>
-) {
-    if connection.0.is_none() { return; }
+pub fn tcp_client_net_send(comm: ResMut<Communication>, mut connection: ResMut<TcpConnection>) {
+    if !connection.output_message.is_empty() {
+        let encoded_message =
+            bincode::serde::encode_to_vec(connection.output_message.clone(), config::standard())
+                .unwrap();
 
-    let message = bincode::serde::encode_to_vec(&c.output_message, config::standard()).unwrap();
-
-    let x = comm.tcp_tx.try_send((message.clone(), c.stream.clone()));
-
-    match x {
-        Ok(()) => {
-            c.output_message.clear();
+        if let Some(s) = &connection.stream {
+            match comm.tcp_tx.try_send((encoded_message.clone(), s.clone())) {
+                Ok(()) => {
+                    connection.output_message.clear();
+                }
+                Err(TrySendError::Full(_)) => return,
+                Err(TrySendError::Closed(_)) => return,
+            };
         }
-        Err(TrySendError::Full(_)) => break,
-        Err(TrySendError::Closed(_)) => break,
     }
+}
+
+fn same_stream(a: &TcpStream, b: &TcpStream) -> bool {
+    a.peer_addr().ok() == b.peer_addr().ok() && a.local_addr().ok() == b.local_addr().ok()
 }

@@ -1,3 +1,4 @@
+use crate::components::chat::ChatMessage;
 use crate::components::common::{Id, Position};
 use crate::components::entity::Entity;
 use crate::components::player::PlayerBundle;
@@ -37,9 +38,19 @@ impl NetworkMessageType for UDP {}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TCP {
-    TextMessage { message: String },
-    Join { lobby_id: u128 },
-    PlayerId { player_uid: u128 },
+    ChatMessage {
+        player_id: u128,
+        message: ChatMessage,
+    },
+    Chat {
+        messages: Vec<(u128, ChatMessage)>,
+    },
+    Join {
+        lobby_id: u128,
+    },
+    PlayerId {
+        player_uid: u128,
+    },
 }
 
 impl NetworkMessageType for TCP {}

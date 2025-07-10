@@ -1,87 +1,53 @@
 mod components;
 mod network;
 
-use crate::components::player::{
-    PlayerInfo, player_control, reconcile_player_position, snap_camera_to_player, update_players,
+use crate::components::chat::{Chat, chat_window};
+use crate::components::hud::Hud;
+use crate::components::lobby::Lobby;
+use crate::components::player::{PlayerInfo, player_control, snap_camera_to_player};
+use crate::network::net_manage::{
+    Communication, TcpConnection, UdpConnection, start_tcp_task, start_udp_task,
 };
-use crate::network::net_manage::{start_tcp_task, start_udp_task, Communication};
 use crate::network::net_message::{NetworkMessage, TCP};
 use crate::network::net_reconciliation::ReconcileBuffer;
-use crate::network::net_system::{NetworkMessages, tcp_client_net_receive, tcp_client_net_send, udp_client_net_receive, udp_client_net_send};
+use crate::network::net_system::{
+    tcp_client_net_receive, tcp_client_net_send, udp_client_net_receive, udp_client_net_send,
+};
+use crate::network::net_tasks::{handle_tcp_message, handle_udp_message};
+use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::ResourceInspectorPlugin;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::{TcpStream};
+use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
-#[derive(Resource)]
-pub struct UdpSocket(pub SocketAddr);
-
-#[derive(Resource)]
-pub struct TcpSocket(pub Option<Arc<TcpStream>>); 
-
-#[derive(Resource)]
-pub struct Lobby(u128);
-
-#[derive(Component)]
-pub struct Hud;
-
-const IPADDR: &str = "127.0.0.1";
-
-// pub fn init_connection(mut player_info: ResMut<PlayerInfo>) {
-//     let mut uuid = 0;
-// 
-//     let handle = tokio::spawn(async move {
-//         let addr = SocketAddr::new(IPADDR.parse().unwrap(), 4444);
-//         let socket = TcpSocket::new_v4().unwrap();
-//         let stream = socket.connect(addr).await.unwrap();
-// 
-//         stream.ready(Interest::WRITABLE).await.unwrap();
-//         let mut encoded_data = Vec::new();
-//         encoded_data.push(TCP::Join { lobby_id: 1 });
-// 
-//         stream
-//             .try_write(
-//                 bincode::serde::encode_to_vec(encoded_data, bincode::config::standard())
-//                     .unwrap()
-//                     .as_slice(),
-//             )
-//             .unwrap();
-// 
-//         let mut buf = [0; 200];
-// 
-//         stream.ready(Interest::READABLE).await;
-//         stream.try_read(&mut buf);
-// 
-//         println!("uid: {:x?}", buf);
-// 
-//         let decoded: (Vec<TCP>, _) =
-//             bincode::serde::decode_from_slice(&buf, bincode::config::standard()).unwrap();
-// 
-//         for m in decoded.0 {
-//             match m {
-//                 TCP::PlayerId { player_uid } => {
-//                     uuid = player_uid;
-//                 }
-//                 _ => {}
-//             }
-//         }
-//     });
-// 
-//     player_info.current_player_id = uuid;
-// }
-//
-//
-
+const LOBBY_ID: u128 = 1;
 fn join_lobby(
-    mut commands: Commands,
+    mut keyboard_input: EventReader<KeyboardInput>,
+    mut connection: ResMut<TcpConnection>,
 ) {
-    let lobby_id = 0;
-    commands.spawn(NetworkMessage(TCP::Join { lobby_id }));
+    for k in keyboard_input.read() {
+        if k.state == ButtonState::Released {
+            continue;
+        };
+
+        match k.key_code {
+            KeyCode::KeyJ => {
+                if connection.stream.is_some() {
+                    connection
+                        .output_message
+                        .push(NetworkMessage(TCP::Join { lobby_id: LOBBY_ID }));
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[tokio::main]
@@ -101,8 +67,11 @@ async fn main() -> io::Result<()> {
     let (tcp_send_tx, tcp_send_rx) = mpsc::channel::<(Vec<u8>, Arc<TcpStream>)>(1_000);
     let (tcp_receive_tx, tcp_receive_rx) = mpsc::channel::<(Vec<u8>, Arc<TcpStream>)>(1_000);
 
-    start_tcp_task(IPADDR.parse().unwrap(), tcp_send_rx, tcp_receive_tx);
-    start_udp_task("0.0.0.0:0", udp_send_rx, udp_receive_tx, 1).await?;
+    let local_addr = SocketAddr::from(([0, 0, 0, 0], 0));
+    let remote_addr = SocketAddr::from(([127, 0, 0, 1], 4444));
+
+    start_tcp_task(remote_addr, tcp_send_rx, tcp_receive_tx).await?;
+    start_udp_task(local_addr, udp_send_rx, udp_receive_tx, 1).await?;
 
     App::new()
         .add_plugins(DefaultPlugins)
@@ -111,21 +80,25 @@ async fn main() -> io::Result<()> {
             enable_multipass_for_primary_context: true,
         })
         .add_plugins(ResourceInspectorPlugin::<PlayerInfo>::default())
-        .insert_resource(UdpSocket(SocketAddr::new(IPADDR.parse().unwrap(), 4444)))
-        .insert_resource(TcpSocket(None))
         .insert_resource(Communication::new(
             udp_send_tx,
             udp_receive_rx,
             tcp_send_tx,
             tcp_receive_rx,
         ))
+        .insert_resource(UdpConnection {
+            ip_addrs: None,
+            input_packet_buffer: Default::default(),
+            output_message: vec![],
+        })
+        .insert_resource(TcpConnection {
+            stream: None,
+            input_packet_buffer: Default::default(),
+            output_message: vec![],
+        })
         .insert_resource(PlayerInfo {
             current_player_id: 0,
             player_inputs: 0,
-        })
-        .insert_resource(NetworkMessages {
-            udp_messages: vec![],
-            tcp_messages: vec![],
         })
         .insert_resource(Lobby(l_id))
         .insert_resource(ReconcileBuffer {
@@ -133,24 +106,17 @@ async fn main() -> io::Result<()> {
             sequence_counter: 0,
         })
         .insert_resource(Time::<Fixed>::from_hz(60.0))
-        .add_systems(Startup, (setup, join_lobby))
-        .add_systems(
-            Update,
-            (
-                // spawn_players,
-                update_players,
-                snap_camera_to_player,
-            )
-                .chain(),
-        )
+        .add_systems(Startup, setup)
+        .add_systems(Update, (snap_camera_to_player,).chain())
         .add_systems(
             FixedUpdate,
             (
                 udp_client_net_receive,
                 tcp_client_net_receive,
+                handle_udp_message.after(udp_client_net_receive),
+                handle_tcp_message.after(tcp_client_net_receive),
                 (player_control, udp_client_net_send).chain(),
-                tcp_client_net_send,
-                reconcile_player_position,
+                ((join_lobby, chat_window), tcp_client_net_send).chain(),
             ),
         )
         .run();
@@ -173,6 +139,19 @@ fn setup(mut commands: Commands) {
             position_type: PositionType::Absolute,
             bottom: Val::Px(0.5),
             right: Val::Px(0.5),
+            ..default()
+        },
+    ));
+
+    commands.spawn((
+        Chat {
+            chat_history: VecDeque::new(),
+        },
+        Text::new(""),
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(0.5),
+            left: Val::Px(0.5),
             ..default()
         },
     ));

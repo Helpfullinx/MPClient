@@ -37,10 +37,10 @@ pub fn build_reconcile_object_list(
 }
 
 pub fn sequence_message(
-    mut message: Vec<NetworkMessage<UDP>>,
+    message: &mut Vec<NetworkMessage<UDP>>,
     reconcile_objects: Vec<ReconcileObject>,
     reconcile_buffer: &mut ResMut<ReconcileBuffer>,
-) -> Vec<NetworkMessage<UDP>> {
+) {
     let current_sequence = reconcile_buffer.sequence_counter;
 
     if reconcile_buffer.sequence_counter > 1022 {
@@ -56,5 +56,4 @@ pub fn sequence_message(
     message.push(NetworkMessage(UDP::Sequence {
         sequence_number: current_sequence,
     }));
-    message
 }

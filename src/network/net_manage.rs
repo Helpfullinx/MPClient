@@ -1,4 +1,6 @@
+use crate::network::net_message::{NetworkMessage, TCP, UDP};
 use bevy::prelude::{Component, Resource};
+use std::collections::VecDeque;
 use std::io::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -15,16 +17,23 @@ pub struct Communication {
     pub tcp_rx: Receiver<(Vec<u8>, Arc<TcpStream>)>,
 }
 
-#[derive(Component)]
-pub struct UdpPacket {
-    pub bytes: Vec<u8>,
-    pub addr: SocketAddr,
+#[derive(Resource, Debug)]
+pub struct UdpConnection {
+    pub ip_addrs: Option<SocketAddr>,
+    pub input_packet_buffer: VecDeque<Packet>,
+    pub output_message: Vec<NetworkMessage<UDP>>,
 }
 
-#[derive(Component)]
-pub struct TcpPacket {
+#[derive(Resource, Debug)]
+pub struct TcpConnection {
+    pub stream: Option<Arc<TcpStream>>,
+    pub input_packet_buffer: VecDeque<Packet>,
+    pub output_message: Vec<NetworkMessage<TCP>>,
+}
+
+#[derive(Component, Debug)]
+pub struct Packet {
     pub bytes: Vec<u8>,
-    pub tcp_stream: Arc<TcpStream>,
 }
 
 impl Communication {
@@ -56,24 +65,24 @@ pub async fn start_tcp_task(
         // Accept first connection in queue
         match socket.connect(bind_addr).await {
             Ok(stream) => {
-                println!("Connected to server");
+                println!("Connected to server: {:?}", bind_addr.ip().to_string());
 
                 // TODO: Apparently this can create false positives and what it reads because of that may be empty, therefore we have to check that
                 // Get the ready-ness value for the stream
                 let stream = Arc::new(stream);
-                
+
                 // Save stream
-                inbound_accept.send((vec![], stream.clone()));
+                let _ = inbound_accept.send((vec![], stream.clone())).await;
 
                 // Spawn a task dedicated to continuously reading from this client
                 let inbound_task = inbound_accept.clone();
                 let stream_task = stream.clone();
-                let mut read_buf = vec![0u8; 2048];
+                let mut read_buf = vec![0u8; 1024];
                 loop {
                     let ready = stream_task.ready(Interest::READABLE).await.unwrap();
                     if ready.is_readable() {
                         match stream_task.try_read(&mut read_buf) {
-                            Ok(0) => break, // connection closed
+                            // Ok(0) => { break } // connection closed
                             Ok(len) => {
                                 let _ = inbound_task
                                     .send((read_buf[..len].to_vec(), stream_task.clone()))
@@ -81,19 +90,20 @@ pub async fn start_tcp_task(
                             }
                             Err(e) => {
                                 println!("Couldn't read: {:?}", e);
-                                break;
                             }
                         }
                     }
                 }
             }
-            Err(_) => todo!(),
+            Err(_) => {
+                println!("Couldn't connect to remote server")
+            }
         }
     });
 
     // Task responsible for sending queued TCP messages
     tokio::spawn(async move {
-        while let Some(bytes) = outbound.recv().await {
+        while let Some((bytes, stream)) = outbound.recv().await {
             let ready = stream.ready(Interest::WRITABLE).await.unwrap();
 
             if ready.is_writable() {
@@ -111,24 +121,25 @@ pub async fn start_tcp_task(
 }
 
 pub async fn start_udp_task(
-    bind_addr: &str,
+    bind_addr: SocketAddr,
     mut outbound: Receiver<(Vec<u8>, SocketAddr)>,
     inbound: Sender<(Vec<u8>, SocketAddr)>,
     pool_size: usize,
 ) -> Result<(), io::Error> {
     let socket = Arc::new(UdpSocket::bind(bind_addr).await?);
-    let send_sock = socket.clone();
 
     println!("Socket bound on {:?}", socket.local_addr()?);
 
+    let _ = inbound.send((vec![], bind_addr)).await;
+
     for _ in 0..pool_size {
-        let recv_sock = socket.clone();
         let inbound_tx = inbound.clone();
+        let s = socket.clone();
 
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 4096];
+            let mut buf = vec![0u8; 1024];
             loop {
-                match recv_sock.recv_from(&mut buf).await {
+                match s.clone().recv_from(&mut buf).await {
                     Ok((len, addr)) => {
                         let _ = inbound_tx.send((buf[..len].to_vec(), addr)).await;
                     }
@@ -142,7 +153,7 @@ pub async fn start_udp_task(
 
     tokio::spawn(async move {
         while let Some((bytes, addr)) = outbound.recv().await {
-            match send_sock.send_to(&bytes, &addr).await {
+            match socket.clone().send_to(&bytes, &addr).await {
                 Ok(_) => {}
                 Err(e) => println!("send error: {}", e),
             }
