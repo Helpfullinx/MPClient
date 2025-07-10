@@ -11,8 +11,7 @@ use bevy::math::Vec3;
 use bevy::pbr::StandardMaterial;
 use bevy::prelude::{Bundle, Reflect, Resource};
 use bevy::prelude::{
-    Camera3d, Commands, GlobalTransform, JustifyText, KeyCode, Mesh, Mesh2d, Mesh3d,
-    MeshMaterial2d, MeshMaterial3d, Query, Rectangle, ReflectResource, Res, ResMut, Sphere, Text,
+    Camera3d, Commands, GlobalTransform, JustifyText, KeyCode, Mesh, Mesh3d, MeshMaterial3d, Query, ReflectResource, Res, ResMut, Sphere, Text,
     Text2d, TextLayout, Transform, With, Without,
 };
 use serde::{Deserialize, Serialize};
@@ -65,16 +64,16 @@ pub fn player_control(
     if connection.ip_addrs.is_some() {
         let mut encoded_input = 0u8;
 
-        if keyboard_input.pressed(KeyCode::ArrowUp) {
+        if keyboard_input.pressed(KeyCode::KeyW) {
             encoded_input |= 1;
         }
-        if keyboard_input.pressed(KeyCode::ArrowDown) {
+        if keyboard_input.pressed(KeyCode::KeyS) {
             encoded_input |= 2;
         }
-        if keyboard_input.pressed(KeyCode::ArrowRight) {
+        if keyboard_input.pressed(KeyCode::KeyD) {
             encoded_input |= 4;
         }
-        if keyboard_input.pressed(KeyCode::ArrowLeft) {
+        if keyboard_input.pressed(KeyCode::KeyA) {
             encoded_input |= 8;
         }
 
@@ -212,7 +211,6 @@ pub fn update_players(
     }
 
     // Spawns players if they do not exist
-    let mesh = Mesh::from(Sphere::default());
     for p in server_players.iter() {
         if !existing_players.contains(p.0) {
             let parent = commands
@@ -226,7 +224,7 @@ pub fn update_players(
             // Spawn the mesh as a child and it will inherit the scaling
             commands.entity(parent).with_children(|parent| {
                 parent.spawn((
-                    Mesh3d(meshes.add(mesh.clone())),
+                    Mesh3d(meshes.add(Mesh::from(Sphere::default()))),
                     MeshMaterial3d(materials.add(StandardMaterial::from(Color::WHITE))),
                     Transform::default().with_scale(Vec3::splat(1.0)),
                     GlobalTransform::default(),

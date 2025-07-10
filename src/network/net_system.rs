@@ -12,7 +12,7 @@ use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 pub fn udp_client_net_receive(
     mut comm: ResMut<Communication>,
     mut connection: ResMut<UdpConnection>,
-    mut command: Commands,
+    command: Commands,
 ) {
     while !comm.udp_rx.is_empty() {
         match comm.udp_rx.try_recv() {
@@ -50,7 +50,7 @@ pub fn udp_client_net_send(
             &mut message_buffer,
         );
         let message =
-            bincode::serde::encode_to_vec(connection.output_message.clone(), config::standard())
+            bincode::serde::encode_to_vec(&connection.output_message, config::standard())
                 .unwrap();
 
         match comm.udp_tx.try_send((
@@ -67,7 +67,7 @@ pub fn udp_client_net_send(
 }
 
 pub fn tcp_client_net_receive(
-    mut commands: Commands,
+    commands: Commands,
     mut connection: ResMut<TcpConnection>,
     mut comm: ResMut<Communication>,
 ) {
@@ -90,11 +90,11 @@ pub fn tcp_client_net_receive(
 pub fn tcp_client_net_send(comm: ResMut<Communication>, mut connection: ResMut<TcpConnection>) {
     if !connection.output_message.is_empty() {
         let encoded_message =
-            bincode::serde::encode_to_vec(connection.output_message.clone(), config::standard())
+            bincode::serde::encode_to_vec(&connection.output_message, config::standard())
                 .unwrap();
 
         if let Some(s) = &connection.stream {
-            match comm.tcp_tx.try_send((encoded_message.clone(), s.clone())) {
+            match comm.tcp_tx.try_send((encoded_message, s.clone())) {
                 Ok(()) => {
                     connection.output_message.clear();
                 }

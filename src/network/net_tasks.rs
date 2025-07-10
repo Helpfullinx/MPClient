@@ -3,13 +3,12 @@ use crate::components::common::Id;
 use crate::components::player::{
     PlayerInfo, reconcile_player_position, set_player_id, update_players,
 };
-use crate::network::net_manage::{Packet, TcpConnection, UdpConnection};
-use crate::network::net_message::{NetworkMessage, TCP, UDP};
+use crate::network::net_manage::{TcpConnection, UdpConnection};
+use crate::network::net_message::{TCP, UDP};
 use crate::network::net_reconciliation::ReconcileBuffer;
 use bevy::asset::Assets;
-use bevy::ecs::query::QuerySingleError;
 use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Commands, Mesh, Mut, Query, Res, ResMut, Transform};
+use bevy::prelude::{Commands, Mesh, Query, Res, ResMut, Transform};
 use bincode::config;
 
 pub fn handle_udp_message(

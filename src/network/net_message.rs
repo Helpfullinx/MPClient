@@ -2,8 +2,7 @@ use crate::components::chat::ChatMessage;
 use crate::components::common::{Id, Position};
 use crate::components::entity::Entity;
 use crate::components::player::PlayerBundle;
-use bevy::ecs::entity;
-use bevy::prelude::{Commands, Component, Query};
+use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -54,14 +53,3 @@ pub enum TCP {
 }
 
 impl NetworkMessageType for TCP {}
-
-#[inline]
-pub fn build_udp_message(
-    messages: &mut Query<(entity::Entity, &NetworkMessage<UDP>)>,
-    commands: &mut Commands,
-) -> Vec<NetworkMessage<UDP>> {
-    Vec::from_iter(messages.iter_mut().map(|x| {
-        commands.entity(x.0).despawn();
-        x.1.clone()
-    }))
-}

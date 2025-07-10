@@ -1,11 +1,9 @@
 use crate::components::player::PlayerBundle;
-use crate::network::net_manage::Communication;
 use crate::network::net_message::{NetworkMessage, SequenceNumber, UDP};
 use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource};
-use bincode::config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::Pointer;
+use std::ops::Deref;
 
 pub const BUFFER_SIZE: usize = 1024;
 
@@ -51,7 +49,7 @@ pub fn sequence_message(
 
     reconcile_buffer
         .buffer
-        .insert(current_sequence, reconcile_objects.clone());
+        .insert(current_sequence, reconcile_objects);
 
     message.push(NetworkMessage(UDP::Sequence {
         sequence_number: current_sequence,
