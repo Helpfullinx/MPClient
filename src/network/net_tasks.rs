@@ -1,7 +1,8 @@
+use avian3d::prelude::AngularVelocity;
 use crate::components::chat::{Chat, add_chat_message};
 use crate::components::common::Id;
 use crate::components::player::{
-    PlayerInfo, reconcile_player_position, set_player_id, update_players,
+    PlayerInfo, reconcile_player, set_player_id, update_players,
 };
 use crate::network::net_manage::{TcpConnection, UdpConnection};
 use crate::network::net_message::{TCP, UDP};
@@ -13,7 +14,7 @@ use bincode::config;
 
 pub fn handle_udp_message(
     mut connection: ResMut<UdpConnection>,
-    mut client_players: Query<(&mut Transform, &Id)>,
+    mut client_players: Query<(&mut Transform, &mut AngularVelocity, &Id)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -47,7 +48,7 @@ pub fn handle_udp_message(
         for m in decoded_message.0.iter() {
             match m {
                 UDP::Players { players } => {
-                    reconcile_player_position(
+                    reconcile_player(
                         *seq_num.unwrap(),
                         &players,
                         &mut client_players,

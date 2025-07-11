@@ -24,6 +24,10 @@ use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use avian3d::math::Scalar;
+use avian3d::PhysicsPlugins;
+use avian3d::prelude::{Collider, RigidBody};
+use bevy::render::render_resource::TextureViewDimension::Cube;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use crate::components::common::Id;
@@ -64,7 +68,7 @@ async fn main() -> io::Result<()> {
     start_udp_task(remote_addr, udp_send_rx, udp_receive_tx, 1).await?;
 
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, PhysicsPlugins::default()))
         .add_plugins(DefaultInspectorConfigPlugin)
         .add_plugins(EguiPlugin {
             enable_multipass_for_primary_context: true,
@@ -113,13 +117,25 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn setup(mut commands: Commands) {
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 10.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-
-    commands.spawn((PointLight::default(), Transform::from_xyz(0.0, 0.0, 10.0)));
+    
+    commands.spawn((
+        RigidBody::Static,
+        Collider::cuboid(4.0, 0.1, 4.0),
+        Mesh3d(meshes.add(Cuboid::new(4.0,0.1,4.0))),
+        MeshMaterial3d(materials.add(Color::WHITE)),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+    ));
+    
+    commands.spawn((PointLight::default(), Transform::from_xyz(0.0, 0.0, 0.0)));
 
     commands.spawn((
         Hud,

@@ -1,4 +1,4 @@
-use crate::components::player::PlayerBundle;
+use crate::components::player::Player;
 use crate::network::net_message::{NetworkMessage, SequenceNumber, UDP};
 use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource};
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ pub struct ReconcileObject(pub ReconcileType);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ReconcileType {
-    Player { player_bundle: PlayerBundle },
+    PlayerObject { player: Player },
 }
 
 #[derive(Resource)]
