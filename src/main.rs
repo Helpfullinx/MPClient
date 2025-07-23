@@ -4,7 +4,7 @@ mod network;
 use crate::components::chat::{Chat, chat_window};
 use crate::components::hud::Hud;
 // use crate::components::lobby::Lobby;
-use crate::components::player::{PlayerInfo, player_control, snap_camera_to_player};
+use crate::components::player::{PlayerInfo, player_control, snap_camera_to_player, ResimulateEvent, resimulate_player};
 use crate::network::net_manage::{
     Communication, TcpConnection, UdpConnection, start_tcp_task, start_udp_task,
 };
@@ -26,7 +26,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use avian3d::math::Scalar;
 use avian3d::PhysicsPlugins;
-use avian3d::prelude::{Collider, RigidBody};
+use avian3d::prelude::{Collider, Physics, RigidBody};
+use bevy::dev_tools::fps_overlay::FpsOverlayPlugin;
+use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::render::render_resource::TextureViewDimension::Cube;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -73,6 +75,7 @@ async fn main() -> io::Result<()> {
         .add_plugins(EguiPlugin {
             enable_multipass_for_primary_context: true,
         })
+        .add_plugins(FpsOverlayPlugin::default())
         .add_plugins(ResourceInspectorPlugin::<PlayerInfo>::default())
         .insert_resource(Communication::new(
             udp_send_tx,
@@ -98,9 +101,16 @@ async fn main() -> io::Result<()> {
             buffer: HashMap::new(),
             sequence_counter: 0,
         })
+        .insert_resource(Time::<Physics>::default())
         .insert_resource(Time::<Fixed>::from_hz(60.0))
+        .add_event::<ResimulateEvent>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (snap_camera_to_player,).chain())
+        .add_systems(
+            Update,
+            (
+                snap_camera_to_player,
+            )
+        )
         .add_systems(
             FixedUpdate,
             (
@@ -108,7 +118,7 @@ async fn main() -> io::Result<()> {
                 tcp_client_net_receive,
                 handle_udp_message.after(udp_client_net_receive),
                 handle_tcp_message.after(tcp_client_net_receive),
-                (player_control, udp_client_net_send).chain(),
+                ((player_control, resimulate_player), udp_client_net_send).chain(),
                 ((join_lobby, chat_window), tcp_client_net_send).chain(),
             ),
         )
@@ -124,18 +134,18 @@ fn setup(
 ) {
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 10.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     
     commands.spawn((
         RigidBody::Static,
-        Collider::cuboid(4.0, 0.1, 4.0),
-        Mesh3d(meshes.add(Cuboid::new(4.0,0.1,4.0))),
+        Collider::cuboid(40.0, 0.1, 40.0),
+        Mesh3d(meshes.add(Cuboid::new(40.0,0.1,40.0))),
         MeshMaterial3d(materials.add(Color::WHITE)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
     
-    commands.spawn((PointLight::default(), Transform::from_xyz(0.0, 0.0, 0.0)));
+    commands.spawn((PointLight::default(), Transform::from_xyz(0.0, 10.0, 0.0)));
 
     commands.spawn((
         Hud,

@@ -75,7 +75,7 @@ pub fn chat_window(
             _ => {}
         }
 
-        println!("{:?}", message_buffer);
+        // println!("{:?}", message_buffer);
     }
 
     // Updates chat window

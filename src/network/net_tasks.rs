@@ -1,25 +1,27 @@
-use avian3d::prelude::AngularVelocity;
+use avian3d::prelude::{AngularVelocity, LinearVelocity};
 use crate::components::chat::{Chat, add_chat_message};
 use crate::components::common::Id;
-use crate::components::player::{
-    PlayerInfo, reconcile_player, set_player_id, update_players,
-};
+use crate::components::player::{PlayerInfo, reconcile_player, set_player_id, update_players, ResimulateEvent};
 use crate::network::net_manage::{TcpConnection, UdpConnection};
 use crate::network::net_message::{TCP, UDP};
 use crate::network::net_reconciliation::ReconcileBuffer;
 use bevy::asset::Assets;
+use bevy::log::Level;
+use bevy::log::tracing::span;
 use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Commands, Mesh, Query, Res, ResMut, Transform};
+use bevy::prelude::{Commands, Entity, EventWriter, Gizmos, Mesh, Query, Res, ResMut, Transform, World};
 use bincode::config;
 
 pub fn handle_udp_message(
+    mut event_writer: EventWriter<ResimulateEvent>,
+    mut gizmos: Gizmos,
     mut connection: ResMut<UdpConnection>,
-    mut client_players: Query<(&mut Transform, &mut AngularVelocity, &Id)>,
+    mut client_players: Query<(&mut Transform, &mut LinearVelocity, &Id, Entity)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     player_info: Res<PlayerInfo>,
-    reconcile_buffer: Res<ReconcileBuffer>,
+    reconcile_buffer: ResMut<ReconcileBuffer>,
 ) {
     while let Some(p) = connection.input_packet_buffer.pop_front() {
         let decoded_message: (Vec<UDP>, usize) = match bincode::serde::decode_from_slice(&p.bytes, config::standard()) {
@@ -43,12 +45,14 @@ pub fn handle_udp_message(
 
         if seq_num.is_none() {
             continue;
-        };
-
+        }
+        
         for m in decoded_message.0.iter() {
             match m {
                 UDP::Players { players } => {
                     reconcile_player(
+                        &mut event_writer,
+                        &mut gizmos,
                         *seq_num.unwrap(),
                         &players,
                         &mut client_players,
@@ -74,6 +78,7 @@ pub fn handle_tcp_message(
     mut player_info: ResMut<PlayerInfo>,
     mut chat: Query<&mut Chat>,
     mut connection: ResMut<TcpConnection>,
+    mut reconcile_buffer: ResMut<ReconcileBuffer>
 ) {
     while let Some(p) = connection.input_packet_buffer.pop_front() {
         let mut decoded_message: (Vec<TCP>, usize) = match bincode::serde::decode_from_slice(&p.bytes, config::standard()) {
@@ -92,7 +97,7 @@ pub fn handle_tcp_message(
                 }
                 TCP::Join { .. } => {}
                 TCP::PlayerId { player_uid } => {
-                    set_player_id(&mut player_info, *player_uid);
+                    set_player_id(&mut player_info, *player_uid, &mut reconcile_buffer);
                 }
             }
         }

@@ -1,11 +1,8 @@
 use crate::Communication;
 use crate::network::net_manage::{Packet, TcpConnection, UdpConnection};
-use crate::network::net_reconciliation::{
-    ReconcileBuffer, ReconcileObject, build_reconcile_object_list, sequence_message,
-};
+use crate::network::net_reconciliation::{ReconcileBuffer, ObjectState, build_game_state, sequence_message, store_game_state};
 use bevy::prelude::{Commands, Entity, Query, ResMut};
 use bincode::config;
-use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 
@@ -33,20 +30,24 @@ pub fn udp_client_net_receive(
 pub fn udp_client_net_send(
     comm: ResMut<Communication>,
     mut connection: ResMut<UdpConnection>,
-    mut reconcile_objects: Query<(Entity, &ReconcileObject)>,
-    mut message_buffer: ResMut<ReconcileBuffer>,
+    mut object_states: Query<(Entity, &ObjectState)>,
+    mut reconcile_buffer: ResMut<ReconcileBuffer>,
     mut commands: Commands,
 ) {
-    // Takes in all NetworkMessage that have been added to ECS and builds Network
-    // let net_message = build_udp_message(&mut messages, &mut commands);
-    let reconciled_objects = build_reconcile_object_list(&mut reconcile_objects, &mut commands);
+    let game_state = build_game_state(&mut object_states, &mut commands);
 
     if !connection.output_message.is_empty() {
         sequence_message(
             &mut connection.output_message,
-            reconciled_objects,
-            &mut message_buffer,
+            &reconcile_buffer,
         );
+        
+        store_game_state(
+            game_state,
+            &mut reconcile_buffer
+        );
+        
+        reconcile_buffer.increment_sequence_num();
         
         let encoded_message = match bincode::serde::encode_to_vec(&connection.output_message, config::standard()) {
             Ok(m) => m,
