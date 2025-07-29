@@ -4,7 +4,7 @@ mod test;
 
 use crate::components::chat::{Chat, chat_window};
 use crate::components::hud::Hud;
-use crate::components::player::{PlayerInfo, player_control, PlayerMarker};
+use crate::components::player::{PlayerInfo, player_control, PlayerMarker, update_label_pos};
 use crate::network::net_manage::{
     Communication, TcpConnection, UdpConnection, start_tcp_task, start_udp_task,
 };
@@ -80,6 +80,7 @@ fn main() -> io::Result<()> {
             Update,
             (
                 camera_controller,
+                update_label_pos
             )
         )
         .add_systems(

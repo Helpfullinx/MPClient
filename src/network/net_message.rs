@@ -12,7 +12,7 @@ pub trait NetworkMessageType {}
 pub struct NetworkMessage<T: NetworkMessageType>(pub T);
 
 pub type SequenceNumber = u32;
-pub type BitMask = u8;
+pub type BitMask = u16;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum UDP {
     Sequence {

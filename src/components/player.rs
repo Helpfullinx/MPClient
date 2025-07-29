@@ -7,7 +7,7 @@ use bevy::asset::Assets;
 use bevy::color::Color;
 use bevy::input::ButtonInput;
 use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Command, Component, Cuboid, Entity, Event, EventReader, EventWriter, Gizmos, QueryState, Reflect, Resource, Time, World};
+use bevy::prelude::{Camera, Capsule3d, Command, Component, Cuboid, Entity, Event, EventReader, EventWriter, Gizmos, GlobalTransform, Node, QueryState, Reflect, Resource, Single, Time, Val, World};
 use bevy::prelude::{
     Camera3d, Commands, KeyCode, Mesh, Mesh3d, MeshMaterial3d, Query, ReflectResource, Res, ResMut, Text,
     Text2d, TextLayout, Transform, With, Without,
@@ -19,13 +19,15 @@ use std::time::Duration;
 use avian3d::prelude::{Collider, Friction, LinearVelocity, LockedAxes, Physics, PhysicsSchedule, Position, RigidBody, Rotation, Sleeping};
 use bevy::color::palettes::css::PURPLE;
 use bevy::ecs::system::SystemState;
+use bevy::ui::PositionType;
+use bevy::utils::default;
 use crate::network::net_reconciliation::StateType::{InputState, PlayerState};
 
 #[derive(Reflect, Resource, Default)]
 #[reflect(Resource)]
 pub struct PlayerInfo {
     pub current_player_id: Id,
-    pub player_inputs: u8,
+    pub player_inputs: BitMask,
 }
 
 #[derive(Component)]
@@ -222,6 +224,9 @@ fn apply_player_input(
     if encoded_input & 8 > 0 {
         vector.z += 1.0;
     }
+    if encoded_input & 16 > 0 {
+        linear_velocity.y += 1.0;
+    }
     
     let normalized_velocity = vector.normalize_or_zero();
     
@@ -240,7 +245,7 @@ pub fn player_control(
     mut commands: Commands,
 ) {
     if connection.remote_socket.is_some() {
-        let mut encoded_input = 0u8;
+        let mut encoded_input: BitMask = 0u16;
 
         if keyboard_input.pressed(KeyCode::KeyW) {
             encoded_input |= 1;
@@ -253,6 +258,9 @@ pub fn player_control(
         }
         if keyboard_input.pressed(KeyCode::KeyA) {
             encoded_input |= 8;
+        }
+        if keyboard_input.pressed(KeyCode::Space) { 
+            encoded_input |= 16;
         }
 
         let player_id = player_info.current_player_id;
@@ -330,7 +338,7 @@ pub fn reconcile_player(
                 let cps = client_player_state.unwrap();
 
                 gizmos.cuboid(
-                    Transform::from_xyz(sps.position.x, sps.position.y, sps.position.z).with_scale(bevy::math::Vec3::splat(1.0)),
+                    Transform::from_xyz(sps.position.x, sps.position.y, sps.position.z).with_scale(bevy::math::Vec3::splat(1.1)),
                     Color::WHITE
                 );
                 
@@ -424,19 +432,58 @@ pub fn update_players(
     for p in server_players.iter() {
         if !existing_players.contains(p.0) {
             println!("{:?}", p.1.position);
-            commands.spawn((
+            let player = commands.spawn((
                 RigidBody::Dynamic,
                 Collider::capsule(0.5, 1.0),
                 Friction::new(1.0),
                 LockedAxes::new().lock_rotation_x().lock_rotation_y().lock_rotation_z(),
-                Mesh3d(meshes.add(Mesh::from(Cuboid::new(1.0,1.0,1.0)))),
-                MeshMaterial3d(materials.add(StandardMaterial::from(Color::WHITE))),
                 Position::from_xyz(p.1.position.x, p.1.position.y, p.1.position.z),
-                Rotation::default(),
+                Mesh3d(meshes.add(Capsule3d::new(0.5, 1.0))),
+                MeshMaterial3d(materials.add(StandardMaterial::from(Color::WHITE))),
                 Transform::default().with_scale(bevy::math::Vec3::splat(1.0)),
                 *p.0,
                 PlayerMarker
-            ));
+            )).id();
+            
+            commands.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                PlayerLabel(player)
+            )).with_children(|parent| {
+                parent.spawn((
+                    Text::new(p.0.0.to_string()),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        bottom: Val::ZERO,
+                        ..default()
+                    },
+                    TextLayout::default().with_no_wrap(),
+                ));
+            });
         }
+    }
+}
+
+#[derive(Component)]
+pub struct PlayerLabel(Entity);
+pub fn update_label_pos(
+    mut labels: Query<(&mut Node, &PlayerLabel)>,
+    players: Query<&GlobalTransform>,
+    camera3d: Query<(&mut Camera, &GlobalTransform), With<Camera3d>>,
+) {
+    for (mut node, label) in &mut labels {
+        let world_position = players.get(label.0).unwrap().translation() + bevy::math::Vec3::Y;
+
+        let (camera, camera_transform) = camera3d.single().unwrap();
+        
+        let viewport_position = match camera.world_to_viewport(camera_transform, world_position) {
+            Ok(v) => v,
+            Err(e) => { println!("{:?}", e); continue; },
+        };
+
+        node.top = Val::Px(viewport_position.y);
+        node.left = Val::Px(viewport_position.x);
     }
 }
