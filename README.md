@@ -12,3 +12,6 @@ ___
 - [x] Update to 3D transforms instead of 2D
 - [x] Remove all uses of unsafe unwraps
 - [x] Change ID type to use a u32 instead of a u128
+- [ ] Fix instability with high latency
+- [ ] Revamp character controller
+- [ ] Add first/third person camera controller

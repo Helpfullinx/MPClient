@@ -1,10 +1,10 @@
 mod components;
 mod network;
+mod test;
 
 use crate::components::chat::{Chat, chat_window};
 use crate::components::hud::Hud;
-// use crate::components::lobby::Lobby;
-use crate::components::player::{PlayerInfo, player_control, snap_camera_to_player, ResimulateEvent, resimulate_player};
+use crate::components::player::{PlayerInfo, player_control, PlayerMarker};
 use crate::network::net_manage::{
     Communication, TcpConnection, UdpConnection, start_tcp_task, start_udp_task,
 };
@@ -26,13 +26,16 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use avian3d::math::Scalar;
 use avian3d::PhysicsPlugins;
-use avian3d::prelude::{Collider, Physics, RigidBody};
+use avian3d::prelude::{Collider, Friction, LinearVelocity, Physics, PhysicsDebugPlugin, PhysicsDiagnosticsPlugin, PhysicsDiagnosticsUiPlugin, PhysicsSet, PhysicsTime, RigidBody, Sleeping};
 use bevy::dev_tools::fps_overlay::FpsOverlayPlugin;
-use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
+use bevy::log::LogPlugin;
 use bevy::render::render_resource::TextureViewDimension::Cube;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use crate::components::camera::camera_controller;
 use crate::components::common::Id;
+use crate::network::NetworkPlugin;
 
 const LOBBY_ID: u32 = 1;
 fn join_lobby(
@@ -47,9 +50,7 @@ fn join_lobby(
         match k.key_code {
             KeyCode::KeyJ => {
                 if connection.stream.is_some() {
-                    connection
-                        .output_message
-                        .push(NetworkMessage(TCP::Join { lobby_id: Id(LOBBY_ID) }));
+                    connection.add_message(NetworkMessage(TCP::Join { lobby_id: Id(LOBBY_ID) }));
                 }
             }
             _ => {}
@@ -57,70 +58,39 @@ fn join_lobby(
     }
 }
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
-    let (udp_send_tx, udp_send_rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);
-    let (udp_receive_tx, udp_receive_rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);
-    let (tcp_send_tx, tcp_send_rx) = mpsc::channel::<(Vec<u8>, Arc<TcpStream>)>(1_000);
-    let (tcp_receive_tx, tcp_receive_rx) = mpsc::channel::<(Vec<u8>, Arc<TcpStream>)>(1_000);
-    
-    let remote_addr = SocketAddr::from(([100, 113, 246, 10], 4444));
-
-    start_tcp_task(remote_addr, tcp_send_rx, tcp_receive_tx).await?;
-    start_udp_task(remote_addr, udp_send_rx, udp_receive_tx, 1).await?;
-
+fn main() -> io::Result<()> {
     App::new()
-        .add_plugins((DefaultPlugins, PhysicsPlugins::default()))
+        .add_plugins((DefaultPlugins, PhysicsPlugins::default().with_length_unit(10.0)))
         .add_plugins(DefaultInspectorConfigPlugin)
         .add_plugins(EguiPlugin {
             enable_multipass_for_primary_context: true,
         })
         .add_plugins(FpsOverlayPlugin::default())
+        .add_plugins(PhysicsDebugPlugin::default())
         .add_plugins(ResourceInspectorPlugin::<PlayerInfo>::default())
-        .insert_resource(Communication::new(
-            udp_send_tx,
-            udp_receive_rx,
-            tcp_send_tx,
-            tcp_receive_rx,
-        ))
-        .insert_resource(UdpConnection {
-            remote_socket: None,
-            input_packet_buffer: Default::default(),
-            output_message: vec![],
-        })
-        .insert_resource(TcpConnection {
-            stream: None,
-            input_packet_buffer: Default::default(),
-            output_message: vec![],
-        })
+        .add_plugins(NetworkPlugin)
         .insert_resource(PlayerInfo {
             current_player_id: Id(0),
             player_inputs: 0,
         })
-        .insert_resource(ReconcileBuffer {
-            buffer: HashMap::new(),
-            sequence_counter: 0,
-        })
-        .insert_resource(Time::<Physics>::default())
         .insert_resource(Time::<Fixed>::from_hz(60.0))
-        .add_event::<ResimulateEvent>()
+        .insert_resource(Time::<Physics>::default().with_relative_speed(1.0))
         .add_systems(Startup, setup)
         .add_systems(
             Update,
             (
-                snap_camera_to_player,
+                camera_controller,
             )
         )
         .add_systems(
             FixedUpdate,
             (
-                udp_client_net_receive,
-                tcp_client_net_receive,
-                handle_udp_message.after(udp_client_net_receive),
-                handle_tcp_message.after(tcp_client_net_receive),
-                ((player_control, resimulate_player), udp_client_net_send).chain(),
-                ((join_lobby, chat_window), tcp_client_net_send).chain(),
-            ),
+                player_control,
+                join_lobby,
+                chat_window,
+                // debug_player_sleeping
+                // linear_is_changed
+            )
         )
         .run();
 
@@ -132,21 +102,25 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // Main Camera
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    
+
+    // Ground Plane
     commands.spawn((
         RigidBody::Static,
-        Collider::cuboid(40.0, 0.1, 40.0),
-        Mesh3d(meshes.add(Cuboid::new(40.0,0.1,40.0))),
+        Collider::cuboid(40.0, 0.5, 40.0),
+        Mesh3d(meshes.add(Cuboid::new(40.0,0.5,40.0))),
         MeshMaterial3d(materials.add(Color::WHITE)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
-    
+
+    //Light Source
     commands.spawn((PointLight::default(), Transform::from_xyz(0.0, 10.0, 0.0)));
 
+    //Position and ID Hud
     commands.spawn((
         Hud,
         Text::new(""),
@@ -158,6 +132,7 @@ fn setup(
         },
     ));
 
+    // Chat Window
     commands.spawn((
         Chat {
             chat_history: VecDeque::new(),
@@ -170,4 +145,25 @@ fn setup(
             ..default()
         },
     ));
+}
+
+fn linear_is_changed(
+    id: Query<&Id, Changed<LinearVelocity>>,
+) {
+    for id in id.iter() {
+        println!("player linear velo changed: {:?}", id);
+    }
+}
+
+fn debug_player_sleeping(
+    sleeping_players: Query<(&LinearVelocity, &PlayerMarker), With<Sleeping>>,
+    nonsleeping_players: Query<(&LinearVelocity, &PlayerMarker), Without<Sleeping>>,
+) {
+    for p in sleeping_players.iter() {
+        println!("Sleeping: {:?}", p.0);
+    }
+    
+    for p in nonsleeping_players.iter() {
+        println!("NonSleeping: {:?}", p.0);
+    }
 }

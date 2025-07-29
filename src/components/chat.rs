@@ -43,14 +43,13 @@ pub fn chat_window(
                 }
                 Key::Enter => {
                     if connection.stream.is_some() {
-                        connection
-                            .output_message
-                            .push(NetworkMessage(TCP::ChatMessage {
+                        connection.add_message(
+                            NetworkMessage(TCP::ChatMessage {
                                 player_id: player_info.current_player_id,
                                 message: ChatMessage {
                                     message: message_buffer.clone(),
                                 },
-                            }))
+                        }))
                     }
                     message_buffer.clear();
                     *is_active = false;

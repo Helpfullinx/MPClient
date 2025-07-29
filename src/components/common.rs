@@ -24,6 +24,6 @@ impl Vec3 {
 
 impl PartialEq<Self> for Vec3 {
     fn eq(&self, other: &Self) -> bool {
-        ulps_eq!(self.x, other.x, max_ulps = 20) && ulps_eq!(self.y, other.y, max_ulps = 20) && ulps_eq!(self.z, other.z, max_ulps = 20)
+        ulps_eq!(self.x, other.x, max_ulps = 1000) && ulps_eq!(self.y, other.y, max_ulps = 1000) && ulps_eq!(self.z, other.z, max_ulps = 1000)
     }
 }

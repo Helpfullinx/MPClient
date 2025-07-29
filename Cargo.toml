@@ -4,12 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-avian3d = "0.3.1"
+avian3d = { version = "0.3.1", features = ["bevy_diagnostic", "diagnostic_ui"] }
 chrono = "0.4.41"
 bincode = { version = "2.0.1", features = ["serde"] }
 bevy = { version = "0.16.0", features = ["bevy_dev_tools"] }
 bevy-inspector-egui = "0.31.0"
+bevy-tokio-tasks = "0.16.0"
 tokio = { version = "1.45.0", features = ["rt", "rt-multi-thread", "macros", "net", "sync"] }
 futures-lite = "2.6.0"
 serde = { version = "1.0.219", features = ["derive"] }
 approx = "0.5.1"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test.package."*"]
+opt-level = 3

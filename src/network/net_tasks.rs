@@ -1,7 +1,7 @@
-use avian3d::prelude::{AngularVelocity, LinearVelocity};
+use avian3d::prelude::{AngularVelocity, LinearVelocity, Sleeping};
 use crate::components::chat::{Chat, add_chat_message};
 use crate::components::common::Id;
-use crate::components::player::{PlayerInfo, reconcile_player, set_player_id, update_players, ResimulateEvent};
+use crate::components::player::{PlayerInfo, reconcile_player, set_player_id, update_players, PlayerMarker};
 use crate::network::net_manage::{TcpConnection, UdpConnection};
 use crate::network::net_message::{TCP, UDP};
 use crate::network::net_reconciliation::ReconcileBuffer;
@@ -9,14 +9,13 @@ use bevy::asset::Assets;
 use bevy::log::Level;
 use bevy::log::tracing::span;
 use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Commands, Entity, EventWriter, Gizmos, Mesh, Query, Res, ResMut, Transform, World};
+use bevy::prelude::{Commands, Entity, EventWriter, Gizmos, Mesh, Query, Res, ResMut, Transform, With, World};
 use bincode::config;
 
 pub fn handle_udp_message(
-    mut event_writer: EventWriter<ResimulateEvent>,
     mut gizmos: Gizmos,
     mut connection: ResMut<UdpConnection>,
-    mut client_players: Query<(&mut Transform, &mut LinearVelocity, &Id, Entity)>,
+    mut client_players: Query<(&mut Transform, &Id, Entity), With<PlayerMarker>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -51,7 +50,7 @@ pub fn handle_udp_message(
             match m {
                 UDP::Players { players } => {
                     reconcile_player(
-                        &mut event_writer,
+                        &mut commands,
                         &mut gizmos,
                         *seq_num.unwrap(),
                         &players,

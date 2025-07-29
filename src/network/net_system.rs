@@ -36,9 +36,9 @@ pub fn udp_client_net_send(
 ) {
     let game_state = build_game_state(&mut object_states, &mut commands);
 
-    if !connection.output_message.is_empty() {
+    if !connection.is_empty_messages() {
         sequence_message(
-            &mut connection.output_message,
+            &mut connection,
             &reconcile_buffer,
         );
         
@@ -46,10 +46,10 @@ pub fn udp_client_net_send(
             game_state,
             &mut reconcile_buffer
         );
-        
+
         reconcile_buffer.increment_sequence_num();
         
-        let encoded_message = match bincode::serde::encode_to_vec(&connection.output_message, config::standard()) {
+        let encoded_message = match bincode::serde::encode_to_vec(connection.get_current_messages(), config::standard()) {
             Ok(m) => m,
             Err(e) => {
                 println!("Couldn't encode UDP message: {:?}", e);
@@ -60,7 +60,7 @@ pub fn udp_client_net_send(
         if let Some(remote_socket) = &connection.remote_socket {
             match comm.udp_tx.try_send(( encoded_message, *remote_socket )) {
                 Ok(()) => {
-                    connection.output_message.clear();
+                    connection.clear_messages();
                 }
                 Err(TrySendError::Full(_)) => {}
                 Err(TrySendError::Closed(_)) => {}
@@ -91,8 +91,8 @@ pub fn tcp_client_net_receive(
 }
 
 pub fn tcp_client_net_send(comm: ResMut<Communication>, mut connection: ResMut<TcpConnection>) {
-    if !connection.output_message.is_empty() {
-        let encoded_message = match bincode::serde::encode_to_vec(&connection.output_message, config::standard()) {
+    if !connection.is_empty_messages() {
+        let encoded_message = match bincode::serde::encode_to_vec(connection.get_current_messages(), config::standard()) {
             Ok(m) => m,
             Err(e) => {
                 println!("Couldn't encode TCP message: {:?}", e);
@@ -103,7 +103,7 @@ pub fn tcp_client_net_send(comm: ResMut<Communication>, mut connection: ResMut<T
         if let Some(s) = &connection.stream {
             match comm.tcp_tx.try_send((encoded_message, s.clone())) {
                 Ok(()) => {
-                    connection.output_message.clear();
+                    connection.clear_messages();
                 }
                 Err(TrySendError::Full(_)) => return,
                 Err(TrySendError::Closed(_)) => return,

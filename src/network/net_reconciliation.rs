@@ -3,6 +3,7 @@ use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, UDP};
 use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::network::net_manage::{TcpConnection, UdpConnection};
 
 pub const BUFFER_SIZE: usize = 1024;
 
@@ -45,12 +46,12 @@ pub fn build_game_state(
 }
 
 pub fn sequence_message(
-    message: &mut Vec<NetworkMessage<UDP>>,
+    connection: &mut UdpConnection,
     reconcile_buffer: &ReconcileBuffer,
 ) {
     let current_sequence = reconcile_buffer.sequence_counter;
 
-    message.push(NetworkMessage(UDP::Sequence {
+    connection.add_message(NetworkMessage(UDP::Sequence {
         sequence_number: current_sequence,
     }));
 }
