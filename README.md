@@ -2,7 +2,10 @@
 ___
 ### Latest Demo Video
 
-https://github.com/user-attachments/assets/5cfd4068-7e13-475d-a601-27fc692aa257
+
+https://github.com/user-attachments/assets/45c17427-6e24-4daa-ae9a-dc9e00b947cd
+
+
 
 ___
 ### Features to Add
