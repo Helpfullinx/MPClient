@@ -1,11 +1,12 @@
 use crate::components::player::Player;
 use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, UDP};
-use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource};
+use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::network::net_manage::{TcpConnection, UdpConnection};
 
-pub const BUFFER_SIZE: usize = 1024;
+pub const BUFFER_SIZE: u16 = 1024;
+pub const MISS_PREDICT_LIMIT: u16 = 50;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]
 pub struct ObjectState(pub StateType);
@@ -13,18 +14,24 @@ pub struct ObjectState(pub StateType);
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum StateType {
     PlayerState { player: Player },
-    InputState { encoded_input: BitMask }
+    InputState { encoded_input: BitMask, mouse_delta: Vec2 }
 }
 
 #[derive(Resource)]
 pub struct ReconcileBuffer {
     pub buffer: HashMap<SequenceNumber, Vec<ObjectState>>,
     pub sequence_counter: SequenceNumber,
+    pub miss_predict_counter: u16
 }
+
+// #[derive(Resource)]
+// pub struct ReconcilePlayerState {
+//     pub player: Player
+// }
 
 impl ReconcileBuffer {
     pub fn increment_sequence_num(self: &mut Self) {
-        if self.sequence_counter > 1022 {
+        if self.sequence_counter >= BUFFER_SIZE - 1 {
             self.sequence_counter = 0;
         } else {
             self.sequence_counter = self.sequence_counter + 1;

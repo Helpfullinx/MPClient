@@ -33,7 +33,7 @@ use bevy::log::LogPlugin;
 use bevy::render::render_resource::TextureViewDimension::Cube;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use crate::components::camera::camera_controller;
+use crate::components::camera::{camera_controller, CameraInfo};
 use crate::components::common::Id;
 use crate::network::NetworkPlugin;
 
@@ -72,6 +72,7 @@ fn main() -> io::Result<()> {
         .insert_resource(PlayerInfo {
             current_player_id: Id(0),
             player_inputs: 0,
+            mouse_delta: Vec2::ZERO,
         })
         .insert_resource(Time::<Fixed>::from_hz(60.0))
         .insert_resource(Time::<Physics>::default().with_relative_speed(1.0))
@@ -80,7 +81,8 @@ fn main() -> io::Result<()> {
             Update,
             (
                 camera_controller,
-                update_label_pos
+                update_label_pos,
+                // lerp_player_to_server_state
             )
         )
         .add_systems(
@@ -106,7 +108,7 @@ fn setup(
     // Main Camera
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y)
     ));
 
     // Ground Plane

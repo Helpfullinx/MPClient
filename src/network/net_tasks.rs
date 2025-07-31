@@ -9,18 +9,19 @@ use bevy::asset::Assets;
 use bevy::log::Level;
 use bevy::log::tracing::span;
 use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Commands, Entity, EventWriter, Gizmos, Mesh, Query, Res, ResMut, Transform, With, World};
+use bevy::prelude::{Commands, Entity, EventWriter, Gizmos, Mesh, Query, Res, ResMut, Single, Transform, With, World};
 use bincode::config;
+use crate::components::camera::CameraInfo;
 
 pub fn handle_udp_message(
     mut gizmos: Gizmos,
     mut connection: ResMut<UdpConnection>,
-    mut client_players: Query<(&mut Transform, &Id, Entity), With<PlayerMarker>>,
+    mut client_players: Query<(&mut Transform, &Id, Entity, &CameraInfo), With<PlayerMarker>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut reconcile_buffer: ResMut<ReconcileBuffer>,
     player_info: Res<PlayerInfo>,
-    reconcile_buffer: ResMut<ReconcileBuffer>,
 ) {
     while let Some(p) = connection.input_packet_buffer.pop_front() {
         let decoded_message: (Vec<UDP>, usize) = match bincode::serde::decode_from_slice(&p.bytes, config::standard()) {
@@ -43,6 +44,7 @@ pub fn handle_udp_message(
         }
 
         if seq_num.is_none() {
+            println!("No sequence number given");
             continue;
         }
         
@@ -56,7 +58,7 @@ pub fn handle_udp_message(
                         &players,
                         &mut client_players,
                         &player_info,
-                        &reconcile_buffer,
+                        &mut reconcile_buffer,
                     );
                     update_players(
                         &mut commands,

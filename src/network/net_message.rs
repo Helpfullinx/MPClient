@@ -5,13 +5,14 @@ use crate::components::player::Player;
 use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use bevy::math::Vec2;
 
 pub trait NetworkMessageType {}
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkMessage<T: NetworkMessageType>(pub T);
 
-pub type SequenceNumber = u32;
+pub type SequenceNumber = u16;
 pub type BitMask = u16;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum UDP {
@@ -23,6 +24,7 @@ pub enum UDP {
     },
     Input {
         keymask: BitMask,
+        mouse_delta: Vec2,
         player_id: Id,
     },
 }
