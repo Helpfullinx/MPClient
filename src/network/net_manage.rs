@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 use std::io::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io;
 use tokio::io::Interest;
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::sync::mpsc::{Receiver, Sender};

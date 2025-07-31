@@ -3,7 +3,7 @@ use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, UDP};
 use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::network::net_manage::{TcpConnection, UdpConnection};
+use crate::network::net_manage::UdpConnection;
 
 pub const BUFFER_SIZE: u16 = 1024;
 pub const MISS_PREDICT_LIMIT: u16 = 50;

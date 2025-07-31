@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use bevy::app::{App, Plugin, Startup};
+use bevy::app::{App, Plugin};
 use bevy::prelude::{Commands, FixedPostUpdate, FixedPreUpdate, IntoScheduleConfigs, PreStartup, Res};
-use bevy::tasks::AsyncComputeTaskPool;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
-use futures_lite::future::{block_on, poll_once};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use crate::components::player::Player;
 use crate::network::net_manage::{start_tcp_task, start_udp_task, Communication, TcpConnection, UdpConnection};
 use crate::network::net_reconciliation::ReconcileBuffer;
 use crate::network::net_system::{tcp_client_net_receive, tcp_client_net_send, udp_client_net_receive, udp_client_net_send};

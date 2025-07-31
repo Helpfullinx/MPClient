@@ -6,34 +6,21 @@ use crate::components::chat::{Chat, chat_window};
 use crate::components::hud::Hud;
 use crate::components::player::{PlayerInfo, player_control, PlayerMarker, update_label_pos};
 use crate::network::net_manage::{
-    Communication, TcpConnection, UdpConnection, start_tcp_task, start_udp_task,
+    Communication, TcpConnection,
 };
 use crate::network::net_message::{NetworkMessage, TCP};
-use crate::network::net_reconciliation::ReconcileBuffer;
-use crate::network::net_system::{
-    tcp_client_net_receive, tcp_client_net_send, udp_client_net_receive, udp_client_net_send,
-};
-use crate::network::net_tasks::{handle_tcp_message, handle_udp_message};
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::ResourceInspectorPlugin;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::io;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use avian3d::math::Scalar;
 use avian3d::PhysicsPlugins;
-use avian3d::prelude::{Collider, Friction, LinearVelocity, Physics, PhysicsDebugPlugin, PhysicsDiagnosticsPlugin, PhysicsDiagnosticsUiPlugin, PhysicsSet, PhysicsTime, RigidBody, Sleeping};
+use avian3d::prelude::{Collider, LinearVelocity, Physics, PhysicsDebugPlugin, PhysicsTime, RigidBody, Sleeping};
 use bevy::dev_tools::fps_overlay::FpsOverlayPlugin;
-use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
-use bevy::log::LogPlugin;
-use bevy::render::render_resource::TextureViewDimension::Cube;
-use tokio::net::TcpStream;
-use tokio::sync::mpsc;
-use crate::components::camera::{camera_controller, CameraInfo};
+use crate::components::camera::camera_controller;
 use crate::components::common::Id;
 use crate::network::NetworkPlugin;
 

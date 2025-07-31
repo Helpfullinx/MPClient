@@ -1,4 +1,3 @@
-use avian3d::prelude::{AngularVelocity, LinearVelocity, Sleeping};
 use crate::components::chat::{Chat, add_chat_message};
 use crate::components::common::Id;
 use crate::components::player::{PlayerInfo, reconcile_player, set_player_id, update_players, PlayerMarker};
@@ -6,10 +5,8 @@ use crate::network::net_manage::{TcpConnection, UdpConnection};
 use crate::network::net_message::{TCP, UDP};
 use crate::network::net_reconciliation::ReconcileBuffer;
 use bevy::asset::Assets;
-use bevy::log::Level;
-use bevy::log::tracing::span;
 use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Commands, Entity, EventWriter, Gizmos, Mesh, Query, Res, ResMut, Single, Transform, With, World};
+use bevy::prelude::{Commands, Entity, Gizmos, Mesh, Query, Res, ResMut, Transform, With};
 use bincode::config;
 use crate::components::camera::CameraInfo;
 

@@ -1,6 +1,6 @@
-use avian3d::prelude::{Position, Rotation};
-use bevy::input::mouse::{accumulate_mouse_motion_system, MouseMotion, MouseWheel};
-use bevy::prelude::{Camera3d, Changed, Component, EventReader, Fixed, Local, Quat, Query, Res, ResMut, Resource, Single, Time, Transform, Vec2, Vec3, With, Without};
+use avian3d::prelude::Position;
+use bevy::input::mouse::MouseWheel;
+use bevy::prelude::{Camera3d, Component, EventReader, Local, Quat, Query, Res, Transform, Vec2, Vec3, With, Without};
 use bevy::prelude::EulerRot::YXZ;
 use crate::components::common::Id;
 use crate::components::player::{PlayerInfo, PlayerMarker};

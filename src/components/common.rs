@@ -1,5 +1,5 @@
 use approx::ulps_eq;
-use bevy::prelude::{Component, Entity, Reflect};
+use bevy::prelude::{Component, Reflect};
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 

@@ -2,32 +2,26 @@ use crate::components::common::{Id, Vec3};
 use crate::components::hud::Hud;
 use crate::network::net_manage::UdpConnection;
 use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, UDP};
-use crate::network::net_reconciliation::{ReconcileBuffer, ObjectState, StateType, MISS_PREDICT_LIMIT};
+use crate::network::net_reconciliation::{ReconcileBuffer, ObjectState, MISS_PREDICT_LIMIT};
 use bevy::asset::Assets;
 use bevy::color::Color;
 use bevy::input::ButtonInput;
 use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Camera, Capsule3d, Command, Component, Cuboid, DetectChanges, DetectChangesMut, Entity, Event, EventReader, EventWriter, Gizmos, GlobalTransform, Local, Node, QueryState, Reflect, Resource, Single, Time, Val, Vec2, World};
+use bevy::prelude::{Camera, Capsule3d, Command, Component, Entity, EventReader, Gizmos, GlobalTransform, Node, Reflect, Resource, Time, Val, Vec2, World};
 use bevy::prelude::{
-    Camera3d, Commands, KeyCode, Mesh, Mesh3d, MeshMaterial3d, Query, ReflectResource, Res, ResMut, Text,
-    Text2d, TextLayout, Transform, With, Without,
+    Camera3d, Commands, KeyCode, Mesh, Mesh3d, MeshMaterial3d, Query, ReflectResource, Res, ResMut, Text, TextLayout, Transform, With,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
 use std::time::Duration;
 use avian3d::prelude::{Collider, Friction, LinearVelocity, LockedAxes, Physics, PhysicsSchedule, Position, RigidBody, Rotation, Sleeping};
 use bevy::color::palettes::css::PURPLE;
-use bevy::ecs::system::SystemState;
 use bevy::input::mouse::MouseMotion;
-use bevy::math;
 use bevy::math::EulerRot::YXZ;
 use bevy::math::{Quat, VectorSpace};
-use bevy::time::Fixed;
 use bevy::ui::PositionType;
 use bevy::utils::default;
 use crate::components::camera::{apply_player_camera_input, CameraInfo};
-use crate::components::common;
 use crate::network::net_reconciliation::StateType::{InputState, PlayerState};
 
 #[derive(Reflect, Resource, Default)]
