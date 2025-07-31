@@ -1,9 +1,7 @@
 ## Multiplayer Client
 ___
 ### Latest Demo Video
-
-https://github.com/user-attachments/assets/45c17427-6e24-4daa-ae9a-dc9e00b947cd
-
+https://github.com/user-attachments/assets/6f5db740-b1d1-4c84-834e-8bf81ca97c1a
 ___
 ### Features to Add
 - [x] Fix chat message overflow
