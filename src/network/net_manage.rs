@@ -1,4 +1,4 @@
-use crate::network::net_message::{NetworkMessage, TCP, UDP};
+use crate::network::net_message::{NetworkMessage, CTcpType, CUdpType};
 use bevy::prelude::{Component, Resource};
 use std::collections::VecDeque;
 use std::io::Error;
@@ -20,14 +20,16 @@ pub struct Communication {
 pub struct UdpConnection {
     pub remote_socket: Option<SocketAddr>,
     pub input_packet_buffer: VecDeque<Packet>,
-    output_message: Vec<NetworkMessage<UDP>>,
+    output_message: Vec<NetworkMessage<CUdpType>>,
+    pub ping: u32
 }
 
 #[derive(Resource, Debug)]
 pub struct TcpConnection {
     pub stream: Option<Arc<TcpStream>>,
     pub input_packet_buffer: VecDeque<Packet>,
-    output_message: Vec<NetworkMessage<TCP>>,
+    output_message: Vec<NetworkMessage<CTcpType>>,
+    pub ping: u32
 }
 
 #[derive(Component, Debug)]
@@ -57,14 +59,15 @@ impl UdpConnection {
             remote_socket: ip_addrs,
             input_packet_buffer: VecDeque::new(),
             output_message: Vec::new(),
+            ping: 0
         }
     }
 
-    pub fn add_message(&mut self, message: NetworkMessage<UDP>) {
+    pub fn add_message(&mut self, message: NetworkMessage<CUdpType>) {
         self.output_message.push(message);
     }
 
-    pub fn get_current_messages(&self) -> &Vec<NetworkMessage<UDP>> {
+    pub fn get_current_messages(&self) -> &Vec<NetworkMessage<CUdpType>> {
         &self.output_message
     }
 
@@ -83,14 +86,15 @@ impl TcpConnection {
             stream,
             input_packet_buffer: Default::default(),
             output_message: vec![],
+            ping: 0
         }
     }
 
-    pub fn add_message(&mut self, message: NetworkMessage<TCP>) {
+    pub fn add_message(&mut self, message: NetworkMessage<CTcpType>) {
         self.output_message.push(message);
     }
 
-    pub fn get_current_messages(&self) -> &Vec<NetworkMessage<TCP>> {
+    pub fn get_current_messages(&self) -> &Vec<NetworkMessage<CTcpType>> {
         &self.output_message
     }
 

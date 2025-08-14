@@ -23,6 +23,8 @@ use crate::components::player::{PlayerInfo, PlayerMarker};
 //     // }
 // }
 
+const CAMERA_HEIGHT: f32 = 0.75;
+
 #[derive(Component, Debug)]
 pub struct CameraInfo {
     pub yaw: f32,
@@ -62,10 +64,12 @@ pub(crate) fn camera_controller(
             for mut cam in camera.iter_mut() {
                 cam.rotation = Quat::from_euler(YXZ, player.2.yaw, -player.2.pitch, 0.0);
 
+                let pivot_shift = player.1.0 + Vec3::new(0.0, CAMERA_HEIGHT, 0.0);
+                
                 if CAM_SPACE == 0. {
-                    cam.translation = player.1.0 + Vec3::new(0.0, 0.0, *zoom); // 0.0, 0.5, 2.0
+                    cam.translation = pivot_shift + Vec3::new(0.0, 0.0, *zoom); // 0.0, 0.5, 2.0
                 } else {
-                    cam.translation = player.1.0 + cam.rotation * Vec3::new(0.0, 0.0, *zoom); // 0.0, 0.5, 2.0
+                    cam.translation = pivot_shift + cam.rotation * Vec3::new(0.0, 0.0, *zoom); // 0.0, 0.5, 2.0
                 }
             }
         }

@@ -1,6 +1,6 @@
 use crate::components::player::PlayerInfo;
 use crate::network::net_manage::TcpConnection;
-use crate::network::net_message::{NetworkMessage, TCP};
+use crate::network::net_message::{NetworkMessage, CTcpType};
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::ButtonState;
 use bevy::prelude::{Component, EventReader, KeyCode, Local, Query, Res, ResMut, Text, With};
@@ -44,7 +44,7 @@ pub fn chat_window(
                 Key::Enter => {
                     if connection.stream.is_some() {
                         connection.add_message(
-                            NetworkMessage(TCP::ChatMessage {
+                            NetworkMessage(CTcpType::ChatMessage {
                                 player_id: player_info.current_player_id,
                                 message: ChatMessage {
                                     message: message_buffer.clone(),

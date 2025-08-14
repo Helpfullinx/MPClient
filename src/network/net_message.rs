@@ -14,37 +14,59 @@ pub struct NetworkMessage<T: NetworkMessageType>(pub T);
 pub type SequenceNumber = u16;
 pub type BitMask = u16;
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum UDP {
+pub enum CUdpType {
     Sequence {
         sequence_number: SequenceNumber,
-    },
-    Players {
-        players: HashMap<Id, Player>,
     },
     Input {
         keymask: BitMask,
         mouse_delta: Vec2,
         player_id: Id,
     },
+    Ping {
+        intitiation_time: u32,
+        last_rtt: u32,
+    },
 }
 
-impl NetworkMessageType for UDP {}
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum SUdpType {
+    Sequence {
+        sequence_number: SequenceNumber,
+    },
+    Players {
+        players: HashMap<Id, Player>,
+    },
+    Pong {
+        initiation_time: u32,
+        server_received_time: u32,
+    }
+}
+
+impl NetworkMessageType for CUdpType {}
+impl NetworkMessageType for SUdpType {}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum TCP {
+pub enum CTcpType {
     ChatMessage {
         player_id: Id,
         message: ChatMessage,
     },
-    Chat {
-        messages: Vec<(Id, ChatMessage)>
-    },
     Join {
         lobby_id: Id,
     },
+    
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum STcpType {
     PlayerId {
         player_uid: Id,
     },
+    Chat {
+        messages: Vec<(Id, ChatMessage)>
+    },
 }
 
-impl NetworkMessageType for TCP {}
+impl NetworkMessageType for CTcpType {}
+impl NetworkMessageType for STcpType {}

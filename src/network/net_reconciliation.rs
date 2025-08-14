@@ -1,12 +1,12 @@
 use crate::components::player::Player;
-use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, UDP};
+use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, CUdpType};
 use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::network::net_manage::UdpConnection;
 
 pub const BUFFER_SIZE: u16 = 1024;
-pub const MISS_PREDICT_LIMIT: u16 = 50;
+pub const MISS_PREDICT_LIMIT: u16 = 20;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]
 pub struct ObjectState(pub StateType);
@@ -58,7 +58,7 @@ pub fn sequence_message(
 ) {
     let current_sequence = reconcile_buffer.sequence_counter;
 
-    connection.add_message(NetworkMessage(UDP::Sequence {
+    connection.add_message(NetworkMessage(CUdpType::Sequence {
         sequence_number: current_sequence,
     }));
 }

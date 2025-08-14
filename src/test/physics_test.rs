@@ -1,6 +1,12 @@
+use std::thread::sleep;
 use std::time::Duration;
-use avian3d::prelude::{GravityScale, LinearVelocity, Physics, PhysicsSchedule, Position};
+use avian3d::collision::CollisionDiagnostics;
+use avian3d::dynamics::solver::SolverDiagnostics;
+use avian3d::PhysicsPlugins;
+use avian3d::prelude::{Collider, GravityScale, LinearVelocity, LockedAxes, Physics, PhysicsSchedule, Position, RigidBody, Rotation, SpatialQueryDiagnostics};
 use bevy::prelude::*;
+use bevy::render::mesh::MeshPlugin;
+use bevy::scene::ScenePlugin;
 
 #[test]
 fn physics_test() {

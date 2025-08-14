@@ -4,11 +4,11 @@ mod test;
 
 use crate::components::chat::{Chat, chat_window};
 use crate::components::hud::Hud;
-use crate::components::player::{PlayerInfo, player_control, PlayerMarker, update_label_pos};
+use crate::components::player::{PlayerInfo, player_control, PlayerMarker, update_label_pos, player_animations, setup_player_animations, animation_control};
 use crate::network::net_manage::{
     Communication, TcpConnection,
 };
-use crate::network::net_message::{NetworkMessage, TCP};
+use crate::network::net_message::{NetworkMessage, CTcpType};
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
@@ -18,11 +18,17 @@ use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 use std::collections::VecDeque;
 use std::io;
 use avian3d::PhysicsPlugins;
-use avian3d::prelude::{Collider, LinearVelocity, Physics, PhysicsDebugPlugin, PhysicsTime, RigidBody, Sleeping};
+use avian3d::prelude::{Collider, CollisionLayers, LayerMask, LinearVelocity, Physics, PhysicsDebugPlugin, PhysicsTime, RigidBody, Sleeping};
 use bevy::dev_tools::fps_overlay::FpsOverlayPlugin;
+use bevy::text::FontSmoothing;
 use crate::components::camera::camera_controller;
+use crate::components::CollisionLayer;
 use crate::components::common::Id;
+use crate::components::weapon::{weapon_controller, Weapon};
 use crate::network::NetworkPlugin;
+
+#[derive(Resource)]
+pub struct DefaultFont(pub Handle<Font>);
 
 const LOBBY_ID: u32 = 1;
 fn join_lobby(
@@ -37,7 +43,7 @@ fn join_lobby(
         match k.key_code {
             KeyCode::KeyJ => {
                 if connection.stream.is_some() {
-                    connection.add_message(NetworkMessage(TCP::Join { lobby_id: Id(LOBBY_ID) }));
+                    connection.add_message(NetworkMessage(CTcpType::Join { lobby_id: Id(LOBBY_ID) }));
                 }
             }
             _ => {}
@@ -46,52 +52,67 @@ fn join_lobby(
 }
 
 fn main() -> io::Result<()> {
-    App::new()
-        .add_plugins((DefaultPlugins, PhysicsPlugins::default().with_length_unit(10.0)))
-        .add_plugins(DefaultInspectorConfigPlugin)
-        .add_plugins(EguiPlugin {
+    let mut app = App::new();
+    app.add_plugins((
+        DefaultPlugins,
+        PhysicsPlugins::default().with_length_unit(10.0),
+        DefaultInspectorConfigPlugin,
+        EguiPlugin {
             enable_multipass_for_primary_context: true,
-        })
-        .add_plugins(FpsOverlayPlugin::default())
-        .add_plugins(PhysicsDebugPlugin::default())
-        .add_plugins(ResourceInspectorPlugin::<PlayerInfo>::default())
-        .add_plugins(NetworkPlugin)
-        .insert_resource(PlayerInfo {
-            current_player_id: Id(0),
-            player_inputs: 0,
-            mouse_delta: Vec2::ZERO,
-        })
-        .insert_resource(Time::<Fixed>::from_hz(60.0))
-        .insert_resource(Time::<Physics>::default().with_relative_speed(1.0))
-        .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (
-                camera_controller,
-                update_label_pos,
-                // lerp_player_to_server_state
-            )
+        },
+        FpsOverlayPlugin::default(),
+        PhysicsDebugPlugin::default(),
+        ResourceInspectorPlugin::<PlayerInfo>::default(),
+        NetworkPlugin
+    ));
+    app.insert_resource(PlayerInfo {
+        current_player_id: Id(0),
+        player_inputs: 0,
+        mouse_delta: Vec2::ZERO,
+    });
+    app.insert_resource(Time::<Fixed>::from_hz(60.0));
+    app.insert_resource(Time::<Physics>::default().with_relative_speed(1.0));
+    app.insert_resource(DefaultFont(Handle::default()));
+    app.add_systems(Startup, setup);
+    app.add_systems(
+        Update,
+        (
+            camera_controller,
+            update_label_pos,
+            setup_player_animations,
+            // weapon_equip,
+            weapon_controller
+            // lerp_player_to_server_state
         )
-        .add_systems(
-            FixedUpdate,
-            (
-                player_control,
-                join_lobby,
-                chat_window,
-                // debug_player_sleeping
-                // linear_is_changed
-            )
+    );
+    app.add_systems(
+        FixedUpdate,
+        (
+            player_control,
+            join_lobby,
+            chat_window,
+            player_animations,
+            animation_control,
+            // debug_player_sleeping
+            // linear_is_changed
         )
-        .run();
+    );
+    app.run();
 
     Ok(())
 }
 
 fn setup(
+    mut default_font: ResMut<DefaultFont>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
+    default_font.0 = asset_server.load("fonts\\alagard.ttf");
+    
+    println!("{:?}", default_font.0);
+    
     // Main Camera
     commands.spawn((
         Camera3d::default(),
@@ -102,18 +123,31 @@ fn setup(
     commands.spawn((
         RigidBody::Static,
         Collider::cuboid(40.0, 0.5, 40.0),
+        CollisionLayers::new(CollisionLayer::Ground, [LayerMask::ALL]),
         Mesh3d(meshes.add(Cuboid::new(40.0,0.5,40.0))),
         MeshMaterial3d(materials.add(Color::WHITE)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
 
     //Light Source
-    commands.spawn((PointLight::default(), Transform::from_xyz(0.0, 10.0, 0.0)));
+    commands.spawn((
+        PointLight {
+            intensity: 10000000.0,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 10.0, 0.0)
+    ));
 
     //Position and ID Hud
     commands.spawn((
         Hud,
         Text::new(""),
+        TextFont {
+            font: default_font.0.clone(),
+            font_size: 20.0,
+            line_height: Default::default(),
+            font_smoothing: FontSmoothing::None,
+        },
         Node {
             position_type: PositionType::Absolute,
             bottom: Val::Px(0.5),
@@ -128,6 +162,12 @@ fn setup(
             chat_history: VecDeque::new(),
         },
         Text::new(""),
+        TextFont {
+            font: default_font.0.clone(),
+            font_size: 20.0,
+            line_height: Default::default(),
+            font_smoothing: FontSmoothing::None,
+        },
         Node {
             position_type: PositionType::Absolute,
             bottom: Val::Px(0.5),
@@ -135,6 +175,8 @@ fn setup(
             ..default()
         },
     ));
+
+    commands.spawn(Weapon{ damage: 10, range: 100.0 });
 }
 
 fn linear_is_changed(

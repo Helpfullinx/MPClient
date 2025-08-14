@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use crate::network::net_manage::{start_tcp_task, start_udp_task, Communication, TcpConnection, UdpConnection};
 use crate::network::net_reconciliation::ReconcileBuffer;
 use crate::network::net_system::{tcp_client_net_receive, tcp_client_net_send, udp_client_net_receive, udp_client_net_send};
-use crate::network::net_tasks::{handle_tcp_message, handle_udp_message};
+use crate::network::net_tasks::{add_ping_message, handle_tcp_message, handle_udp_message};
 
 pub mod net_manage;
 pub mod net_message;
@@ -41,6 +41,7 @@ impl Plugin for NetworkPlugin {
                     tcp_client_net_receive,
                     handle_udp_message.after(udp_client_net_receive),
                     handle_tcp_message.after(tcp_client_net_receive),
+                    add_ping_message.after(handle_udp_message),
                 )
             )
             .add_systems(
