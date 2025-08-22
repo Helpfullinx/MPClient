@@ -1,12 +1,12 @@
 use crate::components::player::Player;
 use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, CUdpType};
-use bevy::prelude::{Commands, Component, Entity, Query, ResMut, Resource, Vec2};
+use bevy::prelude::{info, Commands, Component, Entity, Query, ResMut, Resource, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::network::net_manage::UdpConnection;
 
 pub const BUFFER_SIZE: u16 = 1024;
-pub const MISS_PREDICT_LIMIT: u16 = 20;
+pub const MISS_PREDICT_LIMIT: u16 = 50;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]
 pub struct ObjectState(pub StateType);
@@ -24,11 +24,6 @@ pub struct ReconcileBuffer {
     pub miss_predict_counter: u16
 }
 
-// #[derive(Resource)]
-// pub struct ReconcilePlayerState {
-//     pub player: Player
-// }
-
 impl ReconcileBuffer {
     pub fn increment_sequence_num(self: &mut Self) {
         if self.sequence_counter >= BUFFER_SIZE - 1 {
@@ -36,6 +31,11 @@ impl ReconcileBuffer {
         } else {
             self.sequence_counter = self.sequence_counter + 1;
         }
+    }
+
+    pub fn seq_is_newer(self: &Self, rhs: SequenceNumber) -> bool {
+        let diff = (self.sequence_counter.wrapping_sub(rhs)) % BUFFER_SIZE;
+        diff == 0 || diff < BUFFER_SIZE / 2
     }
 }
 
@@ -48,7 +48,7 @@ pub fn build_game_state(
         game_state.push(n.1.clone());
         commands.entity(n.0).despawn();
     }
-
+    
     game_state
 }
 
@@ -67,9 +67,24 @@ pub fn store_game_state(
     game_state: Vec<ObjectState>,
     reconcile_buffer: &mut ResMut<ReconcileBuffer>,
 ) {
+    info!("STORING GAME STATE: {:?}", reconcile_buffer.sequence_counter);
     let current_sequence = reconcile_buffer.sequence_counter;
     
     reconcile_buffer
         .buffer
         .insert(current_sequence, game_state);
+}
+
+pub fn game_state_system(
+    mut object_states: Query<(Entity, &ObjectState)>,
+    mut reconcile_buffer: ResMut<ReconcileBuffer>,
+    mut commands: Commands
+) {
+    let game_state = build_game_state(&mut object_states, &mut commands);
+
+
+    store_game_state(
+        game_state,
+        &mut reconcile_buffer
+    );
 }

@@ -30,24 +30,16 @@ pub fn udp_client_net_receive(
 pub fn udp_client_net_send(
     comm: ResMut<Communication>,
     mut connection: ResMut<UdpConnection>,
-    mut object_states: Query<(Entity, &ObjectState)>,
     mut reconcile_buffer: ResMut<ReconcileBuffer>,
     mut commands: Commands,
 ) {
-    let game_state = build_game_state(&mut object_states, &mut commands);
-
     if !connection.is_empty_messages() {
         sequence_message(
             &mut connection,
             &reconcile_buffer,
         );
         
-        store_game_state(
-            game_state,
-            &mut reconcile_buffer
-        );
-
-        reconcile_buffer.increment_sequence_num();
+        
         
         let encoded_message = match bincode::serde::encode_to_vec(connection.get_current_messages(), config::standard()) {
             Ok(m) => m,
@@ -67,6 +59,7 @@ pub fn udp_client_net_send(
             }
         }
         
+        reconcile_buffer.increment_sequence_num();
     }
 }
 

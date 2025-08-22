@@ -1,43 +1,54 @@
+pub mod animation;
+pub mod plugin;
+mod input;
+
 use crate::components::common::{Id, Vec3};
 use crate::components::hud::Hud;
 use crate::network::net_manage::UdpConnection;
 use crate::network::net_message::{BitMask, NetworkMessage, SequenceNumber, CUdpType};
-use crate::network::net_reconciliation::{ReconcileBuffer, ObjectState, MISS_PREDICT_LIMIT};
-use bevy::asset::{AssetContainer, AssetServer, Assets};
-use bevy::color::Color;
+use crate::network::net_reconciliation::{ReconcileBuffer, ObjectState, MISS_PREDICT_LIMIT, BUFFER_SIZE};
+use bevy::asset::{AssetServer, Assets};
 use bevy::input::ButtonInput;
-use bevy::pbr::StandardMaterial;
-use bevy::prelude::{Added, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, Camera, Capsule3d, ChildOf, Command, Component, Entity, EventReader, Gizmos, GlobalTransform, Handle, Local, Node, Reflect, Resource, Scene, SceneRoot, Time, Val, Vec2, World};
+use bevy::prelude::{error, info, warn, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, Camera, Capsule3d, ChildOf, Command, Component, Entity, EventReader, Gizmos, GlobalTransform, Handle, Local, Node, Reflect, Resource, Scene, SceneRoot, Time, Val, Vec2, World};
 use bevy::prelude::{
-    Camera3d, Commands, KeyCode, Mesh, Mesh3d, MeshMaterial3d, Query, ReflectResource, Res, ResMut, Text, TextLayout, Transform, With,
+    Camera3d, Commands, KeyCode, Mesh3d, MeshMaterial3d, Query, ReflectResource, Res, ResMut, Text, TextLayout, Transform, With,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::PI;
 use std::time::Duration;
 use avian3d::prelude::{Collider, CollisionLayers, Friction, LayerMask, LinearVelocity, LockedAxes, Physics, PhysicsSchedule, Position, RigidBody, Rotation, Sleeping};
-use bevy::color::palettes::css::PURPLE;
-use bevy::ecs::system::command::insert_resource;
-use bevy::ecs::system::entity_command::log_components;
+use bevy::color::palettes::basic::{PURPLE, WHITE};
 use bevy::gltf::GltfAssetLabel;
-use bevy::input::mouse::MouseMotion;
+use bevy::input::mouse::{AccumulatedMouseMotion, MouseMotion};
 use bevy::math::EulerRot::YXZ;
-use bevy::math::{Quat, VectorSpace};
+use bevy::math::Quat;
 use bevy::text::{FontSmoothing, TextFont};
 use bevy::ui::PositionType;
 use bevy::utils::default;
-use futures_lite::StreamExt;
 use crate::components::camera::{apply_player_camera_input, CameraInfo};
 use crate::components::CollisionLayer;
+use crate::components::player::animation::{AnimationState, PlayerAnimationState};
 use crate::DefaultFont;
 use crate::network::net_reconciliation::StateType::{InputState, PlayerState};
+
+#[derive(Reflect, Hash, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum MovementState {
+    Idle,
+    Walking,
+    Running,
+    Jumping,
+    Falling,
+}
 
 #[derive(Reflect, Resource, Default)]
 #[reflect(Resource)]
 pub struct PlayerInfo {
     pub current_player_id: Id,
     pub player_inputs: BitMask,
-    pub mouse_delta: Vec2
+    pub mouse_delta: Vec2,
+    pub accumulated_mouse_delta: Vec2,
+    pub player_movement_state: HashSet<MovementState>,
 }
 
 #[derive(Component)]
@@ -71,40 +82,31 @@ impl Player {
 
 impl ResimulatePlayer {
     fn rollback_player(&self, world: &mut World) {
-        let pos_and_velo = {
+        let rollback_player_state = {
             let mut reconcile_buffer = world.resource_mut::<ReconcileBuffer>();
 
             // Save frame state to buffer
             reconcile_buffer
                 .buffer
                 .insert(self.received_sequence_number, self.object_states.clone());
-
-            reconcile_buffer
-                .buffer
-                .get(&self.received_sequence_number)
-                .and_then(|frame_state| {
-                    frame_state.iter().find_map(|object_state| {
+            
+            self.object_states
+                .iter()
+                .find_map(|object_state| {
                         match object_state.0 {
                             PlayerState { player } => Some((player.position, player.linear_velocity, player.yaw, player.pitch)),
                             _ => None
                         }
-                    })
-                })
+                    }
+                )
         };
 
         // Set transform to match historical frame state
         let mut player = world.query_filtered::<(&mut Position, &mut LinearVelocity, &mut CameraInfo), With<PlayerMarker>>();
         if let Some(mut p) = player.single_mut(world).ok() {
-            // starting_player_state = Some(
-            //     Player::new(
-            //         Vec3::new(p.0.x, p.0.y, p.0.z),
-            //         Vec3::new(p.1.x, p.1.y, p.1.z),
-            //         p.2.yaw.clone(),
-            //         p.2.pitch.clone()
-            //     )
-            // );
+            if let Some(pv) = rollback_player_state {
+                info!("Rollback: yaw {:?}, pitch {:?}", pv.2, pv.3);
 
-            if let Some(pv) = pos_and_velo {
                 p.0.x = pv.0.x;
                 p.0.y = pv.0.y;
                 p.0.z = pv.0.z;
@@ -116,14 +118,14 @@ impl ResimulatePlayer {
             }
         }
     }
-    
+
     fn resimulate_player(&self, world: &mut World) {
-        for i in self.received_sequence_number.. {
+        for i in self.received_sequence_number + 1.. {
             // Extract input for this tick
             let frame_input = {
                 let reconcile_buffer = world.resource_mut::<ReconcileBuffer>();
 
-                if i >= reconcile_buffer.sequence_counter {
+                if !reconcile_buffer.seq_is_newer(i) {
                     break;
                 }
 
@@ -132,29 +134,38 @@ impl ResimulatePlayer {
                     .get(&i)
                     .and_then(|frame_state| {
                         frame_state.iter().find_map(|object_state| match object_state.0 {
-                            InputState { encoded_input , mouse_delta} => Some((encoded_input, mouse_delta)),
+                            InputState { encoded_input , mouse_delta} => {
+                                info!("Input Found");
+                                Some((encoded_input, mouse_delta))
+                            },
                             _ => None,
                         })
                     })
             };
 
+            if frame_input.is_none() {
+                warn!("No input for frame {:?}", i);
+            }
+
             // Apply input
             if let Some(fi) = frame_input {
-                let mut player = world
+                if let Some(mut player) = world
                     .query_filtered::<(&mut LinearVelocity, &mut Rotation, &mut CameraInfo), With<PlayerMarker>>()
                     .single_mut(world)
-                    .unwrap();
+                    .ok()
+                {
+                    if fi.0 != 0 {
+                        apply_player_movement_input(fi.0, &mut player.0, &mut player.1, &player.2.yaw);
+                    }
+                    apply_player_camera_input(fi.1, &mut player.2);
 
-                if fi.0 != 0 {
-                    apply_player_movement_input(fi.0, &mut player.0, &mut player.1, &player.2.yaw);
+                    info!("Sequence {:?}: yaw {:?}, pitch {:?}, mouse_delta {:?}", i, player.2.yaw, player.2.pitch, fi.1);
                 }
-                apply_player_camera_input(fi.1, &mut player.2);
             }
 
             // Run the physics schedule
             world.resource_mut::<Time<Physics>>().advance_by(Duration::from_secs_f64(1.0 / 60.0));
             world.run_schedule(PhysicsSchedule);
-
 
             let new_player_info = {
                 world
@@ -166,11 +177,25 @@ impl ResimulatePlayer {
 
             // Save updated player state
             let mut reconcile_buffer = world.resource_mut::<ReconcileBuffer>();
-            if let Some(frame_state) = reconcile_buffer.buffer.get_mut(&i) {
+
+            let index = if i == BUFFER_SIZE - 1 {
+                0
+            } else {
+                i + 1
+            };
+            
+            let fs = reconcile_buffer.buffer.get_mut(&index);
+            if fs.is_none() {
+                info!("Couldn't find frame state for sequence {:?}", index);
+            }
+
+            if let Some(frame_state) = fs {
                 for object_state in frame_state.iter_mut() {
                     match &mut object_state.0 {
                         PlayerState { player } => {
                             if let Some(p) = new_player_info {
+                                info!("Set state {:?}: yaw {:?}, pitch {:?}", index, p.2, p.3);
+
                                 *player = Player::new(
                                     Vec3::new(p.0.x, p.0.y, p.0.z),
                                     Vec3::new(p.1.x, p.1.y, p.1.z),
@@ -186,17 +211,18 @@ impl ResimulatePlayer {
             }
         }
     }
-    
+
     fn set_updated_player_state(&self, world: &mut World) {
         let new_current_data = {
             let reconcile_buffer = world.resource::<ReconcileBuffer>();
-            let index = {
-                if reconcile_buffer.sequence_counter != 0 {
-                    reconcile_buffer.sequence_counter - 1
-                } else {
-                    1023
-                }
+
+            let index = if reconcile_buffer.sequence_counter == BUFFER_SIZE - 1 {
+                0
+            } else {
+                reconcile_buffer.sequence_counter + 1
             };
+
+            info!("Updated state sequence {:?}", index);
 
             reconcile_buffer
                 .buffer
@@ -213,47 +239,36 @@ impl ResimulatePlayer {
                 })
         };
 
-        if let Some(new_current_data) = new_current_data {
-            // if let Some(starting_player_state) = starting_player_state {
-            //     let mut rps = world.resource_mut::<ReconcilePlayerState>();
-            // 
-            //     rps.player.position.x = new_current_data.0.x;
-            //     rps.player.position.y = new_current_data.0.y;
-            //     rps.player.position.z = new_current_data.0.z;
-            //     rps.player.linear_velocity.x = new_current_data.1.x;
-            //     rps.player.linear_velocity.y = new_current_data.1.y;
-            //     rps.player.linear_velocity.z = new_current_data.1.z;
-            //     rps.player.yaw = new_current_data.2;
-            //     rps.player.pitch = new_current_data.3;
-            //     
-            //     rps.set_changed();
-            //     
-            //     println!("Reconciled player state: {:?}", rps.player);
+        if new_current_data.is_none() {
+            error!("No updated player state found!");
+        }
 
+        if let Some(ncd) = new_current_data {
             if let Some(mut p) = world
                 .query_filtered::<(&mut Position, &mut LinearVelocity, &mut CameraInfo), With<PlayerMarker>>()
                 .single_mut(world)
                 .ok()
             {
-                p.0.x = new_current_data.0.x;
-                p.0.y = new_current_data.0.y;
-                p.0.z = new_current_data.0.z;
-                p.1.x = new_current_data.1.x;
-                p.1.y = new_current_data.1.y;
-                p.1.z = new_current_data.1.z;
-                p.2.yaw = new_current_data.2;
-                p.2.pitch = new_current_data.3;
+                info!("Updated state: yaw {:?}, pitch {:?}", ncd.2, ncd.3);
+                p.0.x = ncd.0.x;
+                p.0.y = ncd.0.y;
+                p.0.z = ncd.0.z;
+                p.1.x = ncd.1.x;
+                p.1.y = ncd.1.y;
+                p.1.z = ncd.1.z;
+                p.2.yaw = ncd.2;
+                p.2.pitch = ncd.3;
             }
-            // }
         }
     }
 }
 
 impl Command for ResimulatePlayer {
     fn apply(self, world: &mut World) -> () {
+        warn!("RESIMULATING");
         self.rollback_player(world);
-        
-        self.resimulate_player(world);        
+
+        self.resimulate_player(world);
 
         self.set_updated_player_state(world);
     }
@@ -268,7 +283,8 @@ pub fn set_player_id(
     reconcile_buffer.buffer.clear()
 }
 
-const MOVE_SPEED: f32 = 1.5;
+const WALK_SPEED: f32 = 1.5;
+const RUN_SPEED: f32 = 5.0;
 
 fn apply_player_movement_input(
     encoded_input: BitMask,
@@ -277,7 +293,7 @@ fn apply_player_movement_input(
     yaw: &f32,
 ) {
     let mut vector = bevy::math::Vec3::ZERO;
-    
+
     if encoded_input & 1 > 0 {
         vector.z -= 1.0;
     }
@@ -295,59 +311,37 @@ fn apply_player_movement_input(
     }
 
     let normalized_rotated_velocity = Quat::from_euler(YXZ, *yaw, 0.0, 0.0).mul_vec3(vector.normalize_or_zero());
-    
+
     // println!("normalized_velocity: {:?}", normalized_velocity);
 
-    linear_velocity.x = normalized_rotated_velocity.x * MOVE_SPEED;
-    linear_velocity.z = normalized_rotated_velocity.z * MOVE_SPEED;
+    linear_velocity.x = normalized_rotated_velocity.x * WALK_SPEED;
+    linear_velocity.z = normalized_rotated_velocity.z * WALK_SPEED;
     rotation.0 = Quat::from_euler(YXZ, *yaw, 0.0, 0.0);
 }
 
-pub fn player_control(
-    mut mouse_input: EventReader<MouseMotion>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
+pub fn player_controller(
     mut player_info: ResMut<PlayerInfo>,
     mut players: Query<(&Id, &Transform, &mut LinearVelocity, &mut Rotation, &mut CameraInfo, &mut PlayerAnimationState), With<PlayerMarker>>,
     mut hud: Query<&mut Text, With<Hud>>,
     mut connection: ResMut<UdpConnection>,
+    reconcile_buffer: Res<ReconcileBuffer>,
     mut commands: Commands,
 ) {
     if connection.remote_socket.is_some() {
-        let mut encoded_input: BitMask = 0u16;
-
-        if keyboard_input.pressed(KeyCode::KeyW) {
-            encoded_input |= 1;
-        }
-        if keyboard_input.pressed(KeyCode::KeyS) {
-            encoded_input |= 2;
-        }
-        if keyboard_input.pressed(KeyCode::KeyD) {
-            encoded_input |= 4;
-        }
-        if keyboard_input.pressed(KeyCode::KeyA) {
-            encoded_input |= 8;
-        }
-        if keyboard_input.pressed(KeyCode::Space) {
-            encoded_input |= 16;
-        }
-
-        let player_id = player_info.current_player_id;
-        let mut mouse_delta = Vec2::ZERO;
-
         for (id, transform, mut linear_velo, mut rotation, mut camera_info, mut player_anim_state) in players.iter_mut() {
-            if player_id == *id {
-                if encoded_input != 0 {
+            if player_info.current_player_id == *id {
+                if player_info.player_inputs != 0 {
                     player_anim_state.0 = AnimationState::Walking;
-                    apply_player_movement_input(encoded_input, &mut linear_velo, &mut rotation, &camera_info.yaw); 
+                    apply_player_movement_input(player_info.player_inputs, &mut linear_velo, &mut rotation, &camera_info.yaw);
                 } else {
                     player_anim_state.0 = AnimationState::Idle;
                 }
-                
+
                 if let Some(mut h) = hud.single_mut().ok() {
                     h.clear();
                     h.push_str(&format!(
                         "x: {:?}\ny: {:?}\nz: {:?}\nping: {:?}\n{:?}",
-                        transform.translation.x, transform.translation.y, transform.translation.z, connection.ping, player_id
+                        transform.translation.x, transform.translation.y, transform.translation.z, connection.ping, player_info.current_player_id
                     ));
                 }
 
@@ -362,25 +356,19 @@ pub fn player_control(
                     linear_velo.y,
                     linear_velo.z,
                 );
-
-                for ev in mouse_input.read() {
-                    mouse_delta += ev.delta;
-                }
                 
-                apply_player_camera_input(mouse_delta, &mut camera_info);
-
                 commands.spawn(ObjectState(PlayerState { player: Player::new(position, lv, camera_info.yaw, camera_info.pitch, player_anim_state.0) }));
-                commands.spawn(ObjectState(InputState { encoded_input, mouse_delta }));
+                commands.spawn(ObjectState(InputState { encoded_input: player_info.player_inputs, mouse_delta: player_info.accumulated_mouse_delta - player_info.mouse_delta }));
             }
         }
 
-        player_info.player_inputs = encoded_input;
-
         connection.add_message(NetworkMessage(CUdpType::Input {
-            keymask: encoded_input,
-            mouse_delta,
-            player_id,
+            keymask: player_info.player_inputs,
+            mouse_delta: player_info.accumulated_mouse_delta - player_info.mouse_delta,
+            player_id: player_info.current_player_id,
         }));
+
+        player_info.accumulated_mouse_delta = Vec2::ZERO;
     }
 }
 
@@ -406,7 +394,7 @@ pub fn reconcile_player(
                 _ => {}
             }
         }
-
+        
         for (t, id, _, _, _) in client_players.iter() {
             if player_info.current_player_id == *id
                 && server_player_state.is_some()
@@ -415,23 +403,24 @@ pub fn reconcile_player(
                 let sps = *server_player_state.unwrap();
                 let cps = client_player_state.unwrap();
 
-                // gizmos.cuboid(
-                //     Transform::from_xyz(sps.position.x, sps.position.y, sps.position.z)
-                //         .with_scale(bevy::math::Vec3::splat(1.1))
-                //         .with_rotation(Quat::from_euler(YXZ, sps.yaw,0.0,0.0)),
-                //     Color::WHITE
-                // );
-                // 
-                // gizmos.cuboid(
-                //     Transform::from_xyz(cps.position.x, cps.position.y, cps.position.z).with_rotation(t.rotation),
-                //     PURPLE
-                // );
+                gizmos.cuboid(
+                    Transform::from_xyz(sps.position.x, sps.position.y, sps.position.z)
+                        .with_scale(bevy::math::Vec3::splat(1.1))
+                        .with_rotation(Quat::from_euler(YXZ, sps.yaw,0.0,0.0)),
+                    WHITE
+                );
+                
+                gizmos.cuboid(
+                    Transform::from_xyz(cps.position.x, cps.position.y, cps.position.z).with_rotation(Quat::from_euler(YXZ, cps.yaw,0.0,0.0)),
+                    PURPLE
+                );
 
                 if !sps.eq(&cps) {
                     if reconcile_buffer.miss_predict_counter >= MISS_PREDICT_LIMIT - 1 {
-                        // println!("sequence: {:?}", message_seq_num);
-                        // println!("client: {:?}, server: {:?}", cps, sps);
-                        // println!("Reconciled");
+                        warn!("RECONCILED");
+                        info!("current sequence: {:?}, recieved sequence: {:?}", reconcile_buffer.sequence_counter, message_seq_num);
+                        info!("client: {:?}, server: {:?}", (cps.yaw, cps.pitch), (sps.yaw, sps.pitch));
+                        
 
                         let mut new_frame_state = reconcile_objects.clone();
                         for object_state in new_frame_state.iter_mut() {
@@ -439,72 +428,20 @@ pub fn reconcile_player(
                                 PlayerState { player } => {
                                     *player = Player::new(sps.position, sps.linear_velocity, sps.yaw, sps.pitch, sps.animation_state);
                                 }
-                                InputState { .. } => {}
+                                _ => {}
                             }
                         }
 
                         commands.queue(ResimulatePlayer{ received_sequence_number: message_seq_num, object_states: new_frame_state });
                         reconcile_buffer.miss_predict_counter = 0;
                     } else {
-                        // println!("reconcile miss-predict counter: {:?}", reconcile_buffer.miss_predict_counter);
                         reconcile_buffer.miss_predict_counter += 1;
                     }
-
-
-
                 }
             }
         }
     }
 }
-
-#[derive(Resource)]
-pub struct LerpStep(pub f32);
-
-impl Default for LerpStep {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
-// pub fn lerp_player_to_server_state(
-//     mut player: Query<(&mut Transform, &mut LinearVelocity, &mut CameraInfo), With<PlayerMarker>>,
-//     fixed_time: Res<Time<Fixed>>,
-//     reconcile_player_state: Res<ReconcilePlayerState>,
-//     mut lerp_step: Local<LerpStep>,
-// ) {
-//     if reconcile_player_state.is_changed() { 
-//         lerp_step.0 = 0.0;
-//     }
-//     
-//     if reconcile_player_state.is_changed() || lerp_step.0 < 1.0 {
-//         println!("State Detected");
-//         if let Some(mut p) = player.single_mut().ok() {
-//             p.0.translation = p.0.translation.lerp(
-//                 math::Vec3::new(
-//                     reconcile_player_state.player.position.x,
-//                     reconcile_player_state.player.position.y,
-//                     reconcile_player_state.player.position.z
-//                 ),
-//                 lerp_step.0
-//             );
-//             
-//             p.1.0 = p.1.0.lerp(
-//                 math::Vec3::new(
-//                     reconcile_player_state.player.linear_velocity.x,
-//                     reconcile_player_state.player.linear_velocity.y,
-//                     reconcile_player_state.player.linear_velocity.z
-//                 ),
-//                 lerp_step.0
-//             );
-//             
-//             p.2.yaw = p.2.yaw.lerp(reconcile_player_state.player.yaw, lerp_step.0);
-//             p.2.pitch = p.2.pitch.lerp(reconcile_player_state.player.pitch, lerp_step.0);
-//             
-//             lerp_step.0 += 0.1;
-//         }
-//     }
-// }
 
 // pub fn spawn_players(
 //     mut commands: Commands,
@@ -545,7 +482,7 @@ pub fn update_players(
     info: &Res<PlayerInfo>,
 ) {
     let mut existing_players = HashSet::new();
-    
+
     for (mut transform, id, entity, _, mut anim_state) in client_players.iter_mut() {
         existing_players.insert(id);
 
@@ -561,9 +498,9 @@ pub fn update_players(
             commands.entity(entity).remove::<Friction>();
             commands.entity(entity).remove::<Sleeping>();
             commands.entity(entity).remove::<CollisionLayers>();
-            
+
             commands.entity(entity).insert(CollisionLayers::new(CollisionLayer::Enemy, [LayerMask::ALL]));
-            
+
             transform.translation.x = player.position.x;
             transform.translation.y = player.position.y;
             transform.translation.z = player.position.z;
@@ -576,7 +513,7 @@ pub fn update_players(
     for p in server_players.iter() {
         if !existing_players.contains(p.0) {
             println!("{:?}", p.1.position);
-            
+
             let player = commands.spawn((
                 RigidBody::Dynamic,
                 Collider::capsule(0.5, 1.0),
@@ -597,7 +534,7 @@ pub fn update_players(
                     Transform::from_xyz(0.0, -1.0, 0.0).with_rotation(Quat::from_euler(YXZ, PI, 0.0, 0.0)),
                 ));
             }).id();
-            
+
             commands.spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -625,134 +562,32 @@ pub fn update_players(
     }
 }
 
-#[derive(Resource)]
-pub struct PlayerAnimationGraph(Handle<AnimationGraph>);
 
-pub fn setup_player_animations(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut animation_graphs: ResMut<Assets<AnimationGraph>>,
-) {
-    let mut animation_graph = AnimationGraph::new();
-    animation_graph.add_clip(
-        asset_server.load(GltfAssetLabel::Animation(0).from_asset("meshes\\player.glb")),
-        1.0,
-        animation_graph.root
-    );
-    animation_graph.add_clip(
-        asset_server.load(GltfAssetLabel::Animation(1).from_asset("meshes\\player.glb")),
-        1.0,
-        animation_graph.root
-    );
-
-    let anim_graph_handle = animation_graphs.add(animation_graph);
-    commands.insert_resource(PlayerAnimationGraph(anim_graph_handle));
-}
-
-pub fn get_top_parent(
-    mut curr_entity: Entity,
-    all_entities_with_parents_query: &Query<&ChildOf>,
-) -> Entity {
-    //Loop up all the way to the top parent
-    loop {
-        if let Ok(ref_to_parent) = all_entities_with_parents_query.get(curr_entity) {
-            curr_entity = ref_to_parent.0;
-        } else {
-            break;
-        }
-    }
-    curr_entity
-}
-
-#[derive(Component)]
-pub struct AnimationPlayerLink(pub Entity);
-
-pub fn player_animations(
-    mut commands: Commands,
-    mut query: Query<(Entity, &mut AnimationPlayer), Added<AnimationPlayer>>,
-    mut all_parents_query: Query<&ChildOf>,
-    animation_graph: Res<PlayerAnimationGraph>,
-    mut done: Local<bool>
-) {
-    // if *done {
-    //     return;
-    // }
-    for (entity, mut player) in query.iter_mut() {
-        println!("Animation Player Found");
-
-        commands.entity(entity).insert((
-            AnimationGraphHandle(animation_graph.0.clone()),
-        ));
-        for i in 1..3 {
-            player.play(AnimationNodeIndex::new(i)).repeat();
-        }
-        
-        let top_entity = get_top_parent(entity, &mut all_parents_query);
-        commands.entity(top_entity).log_components();
-        commands.entity(top_entity).insert(AnimationPlayerLink(entity));
-        
-        // *done = true;
-    }
-}
-
-#[derive(Component)]
-pub struct PlayerAnimationState(pub AnimationState);
-
-#[derive(Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq)]
-pub enum AnimationState {
-    #[default]
-    Idle,
-    Walking,
-}
-
-pub fn animation_control(
-    mut commands: Commands,
-    mut animation_players: Query<&mut AnimationPlayer>,
-    mut player_anim_state: Query<(&mut PlayerAnimationState, &AnimationPlayerLink), With<PlayerMarker>>,
-) {
-    for player_state in player_anim_state.iter_mut() {
-        if let Some(mut anim_play) = animation_players.get_mut(player_state.1.0).ok() {
-            match player_state.0.0 {
-                AnimationState::Idle => {
-                    if let Some(idle_anim) = anim_play.animation_mut(AnimationNodeIndex::new(1)) {
-                        idle_anim.set_weight(1.0);
-                    }
-                    if let Some(walking_anim) = anim_play.animation_mut(AnimationNodeIndex::new(2)) {
-                        walking_anim.set_weight(0.0);
-                    }
-                }
-                AnimationState::Walking => {
-                    if let Some(idle_anim) = anim_play.animation_mut(AnimationNodeIndex::new(1)) {
-                        idle_anim.set_weight(0.0);
-                    }
-                    if let Some(walking_anim) = anim_play.animation_mut(AnimationNodeIndex::new(2)) {
-                        walking_anim.set_weight(1.0);
-                    }
-                }
-            }
-        }
-    }
-}
 
 #[derive(Component)]
 pub struct PlayerLabel(Entity);
 
 pub fn update_label_pos(
-    mut labels: Query<(&mut Node, &PlayerLabel)>,
+    mut labels: Query<(Entity, &mut Node, &PlayerLabel)>,
     players: Query<&GlobalTransform>,
     camera3d: Query<(&mut Camera, &GlobalTransform), With<Camera3d>>,
+    mut commands: Commands
 ) {
-    for (mut node, label) in &mut labels {
-        let world_position = players.get(label.0).unwrap().translation() + bevy::math::Vec3::Y;
+    for (entity, mut node, label) in &mut labels {
+        if let Some(world_position) = players.get(label.0).ok() {
+            let pos = world_position.translation() + bevy::math::Vec3::Y;
+            
+            let (camera, camera_transform) = camera3d.single().unwrap();
 
-        let (camera, camera_transform) = camera3d.single().unwrap();
+            let viewport_position = match camera.world_to_viewport(camera_transform, pos) {
+                Ok(v) => v,
+                Err(e) => { /*println!("{:?}", e);*/ continue; },
+            };
 
-        let viewport_position = match camera.world_to_viewport(camera_transform, world_position) {
-            Ok(v) => v,
-            Err(e) => { /*println!("{:?}", e);*/ continue; },
-        };
-
-        node.top = Val::Px(viewport_position.y);
-        node.left = Val::Px(viewport_position.x);
+            node.top = Val::Px(viewport_position.y);
+            node.left = Val::Px(viewport_position.x);
+        } else {
+            commands.entity(entity).despawn();
+        }
     }
 }

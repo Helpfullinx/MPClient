@@ -4,7 +4,7 @@ mod test;
 
 use crate::components::chat::{Chat, chat_window};
 use crate::components::hud::Hud;
-use crate::components::player::{PlayerInfo, player_control, PlayerMarker, update_label_pos, player_animations, setup_player_animations, animation_control};
+use crate::components::player::{PlayerInfo, player_controller, PlayerMarker, update_label_pos};
 use crate::network::net_manage::{
     Communication, TcpConnection,
 };
@@ -14,7 +14,7 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
-use bevy_inspector_egui::quick::ResourceInspectorPlugin;
+use bevy_inspector_egui::quick::{ResourceInspectorPlugin, WorldInspectorPlugin};
 use std::collections::VecDeque;
 use std::io;
 use avian3d::PhysicsPlugins;
@@ -24,8 +24,10 @@ use bevy::text::FontSmoothing;
 use crate::components::camera::camera_controller;
 use crate::components::CollisionLayer;
 use crate::components::common::Id;
+use crate::components::player::animation::{animation_control, player_animations, setup_player_animations};
+use crate::components::player::plugin::PlayerPlugin;
 use crate::components::weapon::{weapon_controller, Weapon};
-use crate::network::NetworkPlugin;
+use crate::network::{NetworkPlugin, RemoteAddress};
 
 #[derive(Resource)]
 pub struct DefaultFont(pub Handle<Font>);
@@ -52,47 +54,32 @@ fn join_lobby(
 }
 
 fn main() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let default_address = "127.0.0.1:4444".to_string();
+    let remote_address = args.get(1).unwrap_or(&default_address);
+    
     let mut app = App::new();
     app.add_plugins((
         DefaultPlugins,
         PhysicsPlugins::default().with_length_unit(10.0),
-        DefaultInspectorConfigPlugin,
-        EguiPlugin {
-            enable_multipass_for_primary_context: true,
-        },
-        FpsOverlayPlugin::default(),
-        PhysicsDebugPlugin::default(),
+        EguiPlugin::default(),
+        WorldInspectorPlugin::new(),
         ResourceInspectorPlugin::<PlayerInfo>::default(),
-        NetworkPlugin
+        FpsOverlayPlugin::default(),
+        // PhysicsDebugPlugin::default(),
+        NetworkPlugin,
+        PlayerPlugin
     ));
-    app.insert_resource(PlayerInfo {
-        current_player_id: Id(0),
-        player_inputs: 0,
-        mouse_delta: Vec2::ZERO,
-    });
     app.insert_resource(Time::<Fixed>::from_hz(60.0));
     app.insert_resource(Time::<Physics>::default().with_relative_speed(1.0));
     app.insert_resource(DefaultFont(Handle::default()));
+    app.insert_resource(RemoteAddress(remote_address.clone()));
     app.add_systems(Startup, setup);
-    app.add_systems(
-        Update,
-        (
-            camera_controller,
-            update_label_pos,
-            setup_player_animations,
-            // weapon_equip,
-            weapon_controller
-            // lerp_player_to_server_state
-        )
-    );
     app.add_systems(
         FixedUpdate,
         (
-            player_control,
             join_lobby,
             chat_window,
-            player_animations,
-            animation_control,
             // debug_player_sleeping
             // linear_is_changed
         )

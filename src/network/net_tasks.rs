@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 use crate::components::chat::{Chat, add_chat_message};
 use crate::components::common::Id;
-use crate::components::player::{PlayerInfo, reconcile_player, set_player_id, update_players, PlayerMarker, PlayerAnimationState};
+use crate::components::player::{PlayerInfo, reconcile_player, set_player_id, update_players, PlayerMarker};
 use crate::network::net_manage::{TcpConnection, UdpConnection};
 use crate::network::net_message::{NetworkMessage, STcpType, SUdpType};
 use crate::network::net_reconciliation::ReconcileBuffer;
@@ -10,6 +10,7 @@ use bevy::pbr::StandardMaterial;
 use bevy::prelude::{AnimationGraph, Commands, Entity, Gizmos, Mesh, Query, Res, ResMut, Transform, With};
 use bincode::config;
 use crate::components::camera::CameraInfo;
+use crate::components::player::animation::PlayerAnimationState;
 use crate::DefaultFont;
 use crate::network::net_message::CUdpType::Ping;
 
@@ -17,8 +18,8 @@ pub fn handle_udp_message(
     mut gizmos: Gizmos,
     mut connection: ResMut<UdpConnection>,
     mut client_players: Query<(&mut Transform, &Id, Entity, &CameraInfo, &mut PlayerAnimationState), With<PlayerMarker>>,
-    mut commands: Commands,
-    mut asset_server: Res<AssetServer>,
+    mut commands: Commands, 
+    asset_server: Res<AssetServer>,
     mut animation_graphs: ResMut<Assets<AnimationGraph>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
